@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model InventoryItem {
+  id                    String    @id @default(cuid())
+  game                  String    @default("pokemon")
+  cardName              String
+  setName               String?
+  cardNumber            String?
+  language              String    @default("EN")
+  rarity                String?
+  variant               String?
+  conditionRaw          String?
+  gradingCompany        String?
+  grade                 String?
+  certNumber            String?
+  quantity              Int       @default(1)
+  purchasePrice         Float
+  purchaseDate          DateTime  @default(now())
+  fees                  Float     @default(0)
+  shippingCost          Float     @default(0)
+  source                String?
+  notes                 String?
+  imageUrl              String?
+  manualImageUrl        String?
+  latestMarketPrice     Float?
+  latestMarketCurrency  String    @default("USD")
+  latestMarketSource    String?
+  latestMarketCheckedAt DateTime?
+  priceOverride         Float?
+  priceOverrideNote     String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  transactions Transaction[]
+  priceComps   PriceComp[]
+
+  @@index([game, cardName])
+  @@index([gradingCompany, certNumber])
+}
+
+model Transaction {
+  id              String   @id @default(cuid())
+  inventoryItemId String
+  type            String   // BUY | SELL | ADJUSTMENT
+  quantity        Int
+  unitPrice       Float
+  fees            Float    @default(0)
+  shippingCost    Float    @default(0)
+  tax             Float    @default(0)
+  netAmount       Float
+  realizedPnL     Float?
+  transactionDate DateTime @default(now())
+  platform        String?
+  note            String?
+  createdAt       DateTime @default(now())
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryItemId])
+  @@index([type, transactionDate])
+}
+
+model PriceComp {
+  id              String   @id @default(cuid())
+  inventoryItemId String
+  title           String
+  soldPrice       Float
+  soldDate        DateTime?
+  currency        String   @default("USD")
+  source          String
+  url             String?
+  imageUrl        String?
+  conditionGuess  String?
+  gradeGuess      String?
+  fetchedAt       DateTime @default(now())
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryItemId])
+}
+
+model CardCatalog {
+  id                  String   @id @default(cuid())
+  game                String   @default("pokemon")
+  cardName            String
+  setName             String?
+  cardNumber          String?
+  language            String   @default("EN")
+  rarity              String?
+  variant             String?
+  normalizedSearchText String
+  imageUrl            String?
+  externalSource      String?
+  externalId          String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([game, normalizedSearchText])
+  @@index([externalSource, externalId])
+}
