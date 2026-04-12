@@ -91,6 +91,34 @@ export async function fetchSetCards(setId: string): Promise<PokemonTCGCard[]> {
   return allCards
 }
 
+/**
+ * Common shorthands collectors use when searching.
+ * Key = pokemontcg.io set ID, value = extra alias tokens added to normalizedSearchText.
+ * This lets queries like "sv151", "obf", "evs", "swsh7" find cards in those sets.
+ */
+const SET_ALIASES: Record<string, string> = {
+  'sv8':     'sv8 surging sparks',
+  'sv7':     'sv7 stellar crown',
+  'sv6pt5':  'sv6pt5 shrouded fable',
+  'sv6':     'sv6 twilight masquerade',
+  'sv5':     'sv5 temporal forces',
+  'sv4pt5':  'sv4pt5 paldean fates',
+  'sv4':     'sv4 paradox rift',
+  'sv3pt5':  'sv3pt5 sv151 151 scarlet violet 151',
+  'sv3':     'sv3 obf obsidian flames',
+  'sv2':     'sv2 paldea evolved',
+  'sv1':     'sv1 scarlet violet base',
+  'swsh7':   'swsh7 evs evolving skies',
+  'swsh12':  'swsh12 sst silver tempest',
+  'swsh9':   'swsh9 brs brilliant stars',
+  'swsh6':   'swsh6 chilling reign',
+  'swsh5':   'swsh5 battle styles',
+  'base1':   'base1 base set original',
+  'base2':   'base2 jungle',
+  'base3':   'base3 fossil',
+  'cel25':   'cel25 celebrations 25th anniversary',
+}
+
 /** Map a pokemontcg.io card to our CardCatalog insert shape. */
 export function mapPokemonCard(card: PokemonTCGCard): {
   id: string
@@ -126,6 +154,7 @@ export function mapPokemonCard(card: PokemonTCGCard): {
     card.number,
     card.rarity,
     variant,
+    SET_ALIASES[card.set.id] ?? '',
     'pokemon', 'tcg',
   ]
     .filter(Boolean)
