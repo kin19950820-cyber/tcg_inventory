@@ -66,7 +66,6 @@ function bball(
     rarity: null,
     variant: null,
     subsetName: null,
-    serialNumber: null,
     imageUrl: null,
     externalSource: 'sports-catalog',
     externalId: slug,
