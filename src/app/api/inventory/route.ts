@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
 const CreateSchema = z.object({
+  // ── Shared identity ──────────────────────────────────────────────────────
+  category: z.string().default('TCG'),
   game: z.string().default('pokemon'),
   cardName: z.string().min(1),
   setName: z.string().optional(),
@@ -10,10 +12,30 @@ const CreateSchema = z.object({
   language: z.string().default('EN'),
   rarity: z.string().optional(),
   variant: z.string().optional(),
+  // ── Condition / grading ──────────────────────────────────────────────────
   conditionRaw: z.string().optional(),
   gradingCompany: z.string().optional(),
   grade: z.string().optional(),
   certNumber: z.string().optional(),
+  // ── Sports-specific ───────────────────────────────────────────────────────
+  sport: z.string().optional(),
+  league: z.string().optional(),
+  season: z.string().optional(),
+  manufacturer: z.string().optional(),
+  brand: z.string().optional(),
+  productLine: z.string().optional(),
+  subsetName: z.string().optional(),
+  insertName: z.string().optional(),
+  parallel: z.string().optional(),
+  serialNumbered: z.boolean().default(false),
+  serialNumber: z.string().optional(),
+  autograph: z.boolean().default(false),
+  memorabilia: z.boolean().default(false),
+  rookie: z.boolean().default(false),
+  playerName: z.string().optional(),
+  teamName: z.string().optional(),
+  year: z.number().int().optional(),
+  // ── Acquisition ──────────────────────────────────────────────────────────
   quantity: z.number().int().min(1).default(1),
   purchasePrice: z.number().min(0),
   purchaseDate: z.string(),
@@ -27,20 +49,26 @@ const CreateSchema = z.object({
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
+  const category = searchParams.get('category')
   const game = searchParams.get('game')
+  const sport = searchParams.get('sport')
   const search = searchParams.get('q')
   const page = parseInt(searchParams.get('page') ?? '1')
   const limit = parseInt(searchParams.get('limit') ?? '50')
   const skip = (page - 1) * limit
 
   const where = {
+    ...(category ? { category } : {}),
     ...(game ? { game } : {}),
+    ...(sport ? { sport } : {}),
     ...(search
       ? {
           OR: [
             { cardName: { contains: search } },
+            { playerName: { contains: search } },
             { setName: { contains: search } },
             { certNumber: { contains: search } },
+            { teamName: { contains: search } },
           ],
         }
       : {}),

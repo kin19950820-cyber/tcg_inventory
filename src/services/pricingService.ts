@@ -1,76 +1,201 @@
 import { prisma } from '@/lib/prisma'
-import { priceChartingProvider } from '@/providers/pricing/priceChartingProvider'
-import { ebaySoldScraperProvider } from '@/providers/pricing/ebaySoldScraperProvider'
 import { manualPriceProvider } from '@/providers/pricing/manualPriceProvider'
+import { ebaySoldScraperProvider } from '@/providers/pricing/ebaySoldScraperProvider'
+import { cachedPriceProvider } from '@/providers/pricing/cachedPriceProvider'
 import type { InventoryItem } from '@prisma/client'
 import type { NormalizedComp, PricingProviderResult } from '@/types'
 
-const providers = [priceChartingProvider, ebaySoldScraperProvider]
+// ── Provider priority chain ───────────────────────────────────────────────────
+// manual override → eBay sold comps → cached historical price → no-price fallback
+// PriceCharting is NOT in this chain; it can be re-added if an API key is configured.
 
-export async function refreshPriceForItem(itemId: string): Promise<PricingProviderResult> {
-  const item = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: itemId } })
+// ── Statistical helpers ───────────────────────────────────────────────────────
 
-  // If manual override, just return that
-  if (item.priceOverride) {
-    return manualPriceProvider.getLatestComps(item)
-  }
+function median(prices: number[]): number {
+  if (prices.length === 0) return 0
+  const sorted = [...prices].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid]
+}
 
-  let bestResult: PricingProviderResult = {
-    comps: [],
-    suggestedPrice: null,
-    source: 'none',
-    fetchedAt: new Date(),
-    error: 'No providers returned data',
-  }
+function average(prices: number[]): number {
+  if (prices.length === 0) return 0
+  return prices.reduce((s, p) => s + p, 0) / prices.length
+}
 
-  for (const provider of providers) {
-    try {
-      const result = await provider.getLatestComps(item)
-      if (result.comps.length > 0 || result.suggestedPrice != null) {
-        bestResult = result
-        break  // stop after first successful provider
-      }
-    } catch {
-      // continue to next provider
+/**
+ * Remove comps whose price is more than 3× or less than 0.3× the median.
+ * Only applies when there are enough comps to be statistically meaningful (≥3).
+ */
+function filterOutliers(comps: NormalizedComp[]): NormalizedComp[] {
+  if (comps.length < 3) return comps
+  const prices = comps.map((c) => c.soldPrice).filter((p) => p > 0)
+  const med = median(prices)
+  if (med === 0) return comps
+  return comps.filter((c) => c.soldPrice >= med * 0.3 && c.soldPrice <= med * 3.0)
+}
+
+/**
+ * Remove comps with very low confidence (< 0.2) when high-confidence comps exist.
+ * This prevents obvious mismatches from polluting the price calculation.
+ */
+function filterLowConfidence(comps: NormalizedComp[]): NormalizedComp[] {
+  if (comps.length === 0) return comps
+  const scores = comps.map((c) => c.confidenceScore ?? 0.5)
+  const maxScore = Math.max(...scores)
+  if (maxScore < 0.4) return comps  // all comps are low-confidence; keep all
+  return comps.filter((c) => (c.confidenceScore ?? 0.5) >= 0.2)
+}
+
+/**
+ * Compute the suggested market price from a set of clean comps.
+ *
+ * Strategy:
+ *  - Prefer median (robust against outliers that slipped through)
+ *  - For single comps use the price directly
+ *  - Weight recent comps slightly higher by averaging median + latest-3 average
+ */
+function computeSuggestedPrice(comps: NormalizedComp[]): number | null {
+  const validPrices = comps
+    .filter((c) => c.soldPrice > 0)
+    .map((c) => c.soldPrice)
+
+  if (validPrices.length === 0) return null
+
+  const med = median(validPrices)
+
+  // If we have enough comps, blend median with latest-3 average
+  if (validPrices.length >= 3) {
+    const byDate = [...comps]
+      .filter((c) => c.soldDate != null)
+      .sort((a, b) => (b.soldDate?.getTime() ?? 0) - (a.soldDate?.getTime() ?? 0))
+    const latest3 = byDate.slice(0, 3).map((c) => c.soldPrice)
+    if (latest3.length >= 2) {
+      const recentAvg = average(latest3)
+      return Math.round(((med * 0.6 + recentAvg * 0.4) * 100) / 100) / 100 * 100
+        / 100  // round to cent
     }
   }
 
-  // Persist comps and update item
-  if (bestResult.comps.length > 0) {
-    await prisma.$transaction([
-      // Delete old comps for this item
-      prisma.priceComp.deleteMany({ where: { inventoryItemId: itemId } }),
-      // Insert fresh comps
-      prisma.priceComp.createMany({
-        data: bestResult.comps.map((c) => ({
-          inventoryItemId: itemId,
-          title: c.title,
-          soldPrice: c.soldPrice,
-          soldDate: c.soldDate,
-          currency: c.currency,
-          source: c.source,
-          url: c.url,
-          imageUrl: c.imageUrl,
-          conditionGuess: c.conditionGuess,
-          gradeGuess: c.gradeGuess,
-        })),
-      }),
-    ])
+  return Math.round(med * 100) / 100
+}
+
+export type PriceStats = {
+  median: number | null
+  average: number | null
+  latestSold: { price: number; date: Date | null; source: string } | null
+  compCount: number
+  highConfidenceCount: number
+}
+
+function computeStats(comps: NormalizedComp[]): PriceStats {
+  const valid = comps.filter((c) => c.soldPrice > 0)
+  if (valid.length === 0) {
+    return { median: null, average: null, latestSold: null, compCount: 0, highConfidenceCount: 0 }
   }
 
-  if (bestResult.suggestedPrice != null) {
+  const prices = valid.map((c) => c.soldPrice)
+  const byDate = [...valid]
+    .filter((c) => c.soldDate != null)
+    .sort((a, b) => (b.soldDate?.getTime() ?? 0) - (a.soldDate?.getTime() ?? 0))
+
+  return {
+    median: Math.round(median(prices) * 100) / 100,
+    average: Math.round(average(prices) * 100) / 100,
+    latestSold: byDate.length > 0
+      ? { price: byDate[0].soldPrice, date: byDate[0].soldDate, source: byDate[0].source }
+      : null,
+    compCount: valid.length,
+    highConfidenceCount: valid.filter((c) => (c.confidenceScore ?? 0) >= 0.6).length,
+  }
+}
+
+// ── Core refresh logic ────────────────────────────────────────────────────────
+
+export async function refreshPriceForItem(itemId: string): Promise<PricingProviderResult & { stats: PriceStats }> {
+  const item = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: itemId } })
+
+  // 1. Manual override — always wins, no live fetch needed
+  if (item.priceOverride != null) {
+    const result = await manualPriceProvider.getLatestComps(item)
+    return { ...result, stats: computeStats(result.comps) }
+  }
+
+  // 2. eBay sold comps
+  let liveResult: PricingProviderResult | null = null
+  try {
+    const ebayResult = await ebaySoldScraperProvider.getLatestComps(item)
+    if (ebayResult.comps.length > 0) {
+      liveResult = ebayResult
+    }
+  } catch {
+    // fall through
+  }
+
+  if (liveResult) {
+    // Filter and compute price from live comps
+    const cleaned = filterOutliers(filterLowConfidence(liveResult.comps))
+    const suggestedPrice = computeSuggestedPrice(cleaned)
+    const stats = computeStats(cleaned)
+
+    const finalResult: PricingProviderResult = {
+      ...liveResult,
+      comps: cleaned,
+      suggestedPrice,
+    }
+
+    await persistCompsAndPrice(itemId, cleaned, suggestedPrice, liveResult.source, liveResult.fetchedAt)
+
+    return { ...finalResult, stats }
+  }
+
+  // 3. Cached price fallback — no DB write since nothing changed
+  const cachedResult = await cachedPriceProvider.getLatestComps(item)
+  return { ...cachedResult, stats: computeStats(cachedResult.comps) }
+}
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+
+async function persistCompsAndPrice(
+  itemId: string,
+  comps: NormalizedComp[],
+  suggestedPrice: number | null,
+  source: string,
+  fetchedAt: Date,
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.priceComp.deleteMany({ where: { inventoryItemId: itemId } }),
+    prisma.priceComp.createMany({
+      data: comps.map((c) => ({
+        inventoryItemId: itemId,
+        title: c.title,
+        soldPrice: c.soldPrice,
+        soldDate: c.soldDate,
+        currency: c.currency,
+        source: c.source,
+        url: c.url,
+        imageUrl: c.imageUrl ?? null,
+        conditionGuess: c.conditionGuess,
+        gradeGuess: c.gradeGuess,
+      })),
+    }),
+  ])
+
+  if (suggestedPrice != null) {
     await prisma.inventoryItem.update({
       where: { id: itemId },
       data: {
-        latestMarketPrice: bestResult.suggestedPrice,
-        latestMarketSource: bestResult.source,
-        latestMarketCheckedAt: bestResult.fetchedAt,
+        latestMarketPrice: suggestedPrice,
+        latestMarketSource: source,
+        latestMarketCheckedAt: fetchedAt,
       },
     })
   }
-
-  return bestResult
 }
+
+// ── Bulk refresh ──────────────────────────────────────────────────────────────
 
 export async function refreshAllPrices(): Promise<{ updated: number; errors: number }> {
   const items = await prisma.inventoryItem.findMany({ where: { quantity: { gt: 0 } } })
@@ -89,10 +214,12 @@ export async function refreshAllPrices(): Promise<{ updated: number; errors: num
   return { updated, errors }
 }
 
+// ── Comp reader ───────────────────────────────────────────────────────────────
+
 export async function getCompsForItem(itemId: string): Promise<NormalizedComp[]> {
   const comps = await prisma.priceComp.findMany({
     where: { inventoryItemId: itemId },
-    orderBy: { fetchedAt: 'desc' },
+    orderBy: { soldDate: 'desc' },
   })
 
   return comps.map((c) => ({
@@ -108,10 +235,12 @@ export async function getCompsForItem(itemId: string): Promise<NormalizedComp[]>
   }))
 }
 
+// ── Manual override helpers ───────────────────────────────────────────────────
+
 export async function setManualPriceOverride(
   itemId: string,
   price: number,
-  note?: string
+  note?: string,
 ): Promise<InventoryItem> {
   return prisma.inventoryItem.update({
     where: { id: itemId },

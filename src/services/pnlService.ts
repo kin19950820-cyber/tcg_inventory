@@ -114,6 +114,7 @@ export async function executeSell(input: SellInput): Promise<Transaction> {
 
 // ─── Dashboard stats ──────────────────────────────────────────────────────────
 
+/** @deprecated Use getDashboardData() from dashboardService instead */
 export async function getDashboardStats(): Promise<DashboardStats> {
   const items = await prisma.inventoryItem.findMany({
     include: { transactions: true },
@@ -125,7 +126,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   let totalCostBasis = 0
   let totalEstimatedValue = 0
   let unrealizedPnL = 0
-  let realizedPnLThisMonth = 0
+  let totalQuantity = 0
   let itemsNeedingPriceRefresh = 0
   let itemsMissingImage = 0
 
@@ -138,6 +139,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     const weightedAvgCost = computeWeightedAvgCost(item, buys)
     const cost = weightedAvgCost * item.quantity
     totalCostBasis += cost
+    totalQuantity += item.quantity
 
     const effectivePrice = item.priceOverride ?? item.latestMarketPrice
     if (effectivePrice != null) {
@@ -146,7 +148,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       unrealizedPnL += estValue - cost
     }
 
-    // Needs refresh if not checked in 3 days
     if (!item.latestMarketCheckedAt || item.latestMarketCheckedAt < threeDaysAgo) {
       itemsNeedingPriceRefresh++
     }
@@ -156,18 +157,23 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     }
   }
 
-  // Realized P&L this month from SELL transactions
-  const recentSells = await prisma.transaction.findMany({
-    where: { type: 'SELL', transactionDate: { gte: startOfMonth } },
-  })
-  realizedPnLThisMonth = recentSells.reduce((s, t) => s + (t.realizedPnL ?? 0), 0)
+  const allSells = await prisma.transaction.findMany({ where: { type: 'SELL' } })
+  const thisMonthSells = allSells.filter((t) => t.transactionDate >= startOfMonth)
+  const realizedPnLThisMonth = thisMonthSells.reduce((s, t) => s + (t.realizedPnL ?? 0), 0)
+  const realizedPnLAllTime = allSells.reduce((s, t) => s + (t.realizedPnL ?? 0), 0)
+  const soldItemsThisMonth = thisMonthSells.reduce((s, t) => s + t.quantity, 0)
+  const unrealizedPnLPct = totalCostBasis > 0 ? (unrealizedPnL / totalCostBasis) * 100 : 0
 
   return {
     totalCostBasis,
     totalEstimatedValue,
     unrealizedPnL,
+    unrealizedPnLPct,
     realizedPnLThisMonth,
+    realizedPnLAllTime,
     totalItems: items.filter((i) => i.quantity > 0).length,
+    totalQuantity,
+    soldItemsThisMonth,
     itemsNeedingPriceRefresh,
     itemsMissingImage,
   }

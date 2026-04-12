@@ -104,33 +104,56 @@ export function CardSearchInput({ onSelect, placeholder = 'Search cards — try 
           ref={listRef}
           className="absolute top-full left-0 right-0 mt-1 z-50 max-h-80 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl"
         >
-          {results.map((card, i) => (
-            <li
-              key={card.id}
-              onMouseDown={() => handleSelect(card)}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors',
-                i === cursor ? 'bg-brand-600/30 text-zinc-100' : 'text-zinc-300 hover:bg-zinc-800'
-              )}
-            >
-              {/* Mini thumbnail */}
-              {card.imageUrl ? (
-                <img src={card.imageUrl} alt={card.cardName} className="w-8 h-11 object-contain rounded flex-shrink-0" />
-              ) : (
-                <div className="w-8 h-11 rounded bg-zinc-800 flex-shrink-0" />
-              )}
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{card.cardName}</p>
-                <p className="text-xs text-zinc-500 truncate">
-                  {[card.setName, card.cardNumber && `#${card.cardNumber}`, card.variant, card.language !== 'EN' && card.language]
-                    .filter(Boolean).join(' · ')}
-                </p>
-                {card.rarity && (
-                  <p className="text-xs text-zinc-600 truncate">{card.rarity}</p>
+          {results.map((card, i) => {
+            const c = card as typeof card & {
+              category?: string; sport?: string; playerName?: string
+              brand?: string; season?: string; parallel?: string
+              teamName?: string; rookie?: boolean; autograph?: boolean
+            }
+            const isSports = c.category === 'SPORTS'
+            return (
+              <li
+                key={card.id}
+                onMouseDown={() => handleSelect(card)}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors',
+                  i === cursor ? 'bg-brand-600/30 text-zinc-100' : 'text-zinc-300 hover:bg-zinc-800'
                 )}
-              </div>
-            </li>
-          ))}
+              >
+                {card.imageUrl ? (
+                  <img src={card.imageUrl} alt={card.cardName} className="w-8 h-11 object-contain rounded flex-shrink-0" />
+                ) : (
+                  <div className="w-8 h-11 rounded bg-zinc-800 flex-shrink-0" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-medium truncate">
+                      {isSports ? (c.playerName ?? card.cardName) : card.cardName}
+                    </p>
+                    {c.rookie && <span className="text-xs text-amber-400 font-bold flex-shrink-0">RC</span>}
+                    {c.autograph && <span className="text-xs text-purple-400 flex-shrink-0">AUTO</span>}
+                  </div>
+                  {isSports ? (
+                    <p className="text-xs text-zinc-500 truncate">
+                      {[c.season, c.brand, c.parallel].filter(Boolean).join(' · ')}
+                      {c.teamName && <span className="ml-1 text-zinc-600">· {c.teamName}</span>}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-zinc-500 truncate">
+                      {[card.setName, card.cardNumber && `#${card.cardNumber}`, card.variant, card.language !== 'EN' && card.language]
+                        .filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                  {!isSports && card.rarity && (
+                    <p className="text-xs text-zinc-600 truncate">{card.rarity}</p>
+                  )}
+                  {isSports && (
+                    <p className="text-xs text-zinc-600 truncate">{card.setName}</p>
+                  )}
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
 

@@ -85,18 +85,32 @@ export function InventoryTable({ items, onRefresh }: Props) {
                 </td>
 
                 {/* Card info */}
-                <td className="px-4 py-2.5 max-w-[240px]">
+                <td className="px-4 py-2.5 max-w-[260px]">
                   <Link href={`/inventory/${item.id}`} className="group/link">
                     <p className="font-medium text-zinc-100 group-hover/link:text-brand-400 truncate flex items-center gap-1">
-                      {item.cardName}
+                      {item.category === 'SPORTS' && item.playerName ? item.playerName : item.cardName}
                       <ExternalLink size={11} className="opacity-0 group-hover/link:opacity-100 text-zinc-500" />
                     </p>
                     <p className="text-xs text-zinc-500 truncate">
-                      {[item.setName, item.cardNumber && `#${item.cardNumber}`, item.variant && item.variant].filter(Boolean).join(' · ')}
+                      {item.category === 'SPORTS'
+                        ? [item.setName, item.cardNumber && `#${item.cardNumber}`, item.parallel].filter(Boolean).join(' · ')
+                        : [item.setName, item.cardNumber && `#${item.cardNumber}`, item.variant].filter(Boolean).join(' · ')
+                      }
                     </p>
-                    {item.game !== 'pokemon' && (
-                      <Badge variant="default" className="mt-0.5">{item.game}</Badge>
-                    )}
+                    <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                      {item.category === 'SPORTS' && (
+                        <Badge variant="info" className="text-xs">{item.league ?? item.game}</Badge>
+                      )}
+                      {item.rookie && <Badge variant="warning" className="text-xs">RC</Badge>}
+                      {item.autograph && <Badge variant="purple" className="text-xs">AUTO</Badge>}
+                      {item.memorabilia && <Badge variant="info" className="text-xs">PATCH</Badge>}
+                      {item.serialNumber && (
+                        <span className="text-xs text-zinc-500">{item.serialNumber}</span>
+                      )}
+                      {item.category === 'TCG' && item.game !== 'pokemon' && (
+                        <Badge variant="default" className="text-xs">{item.game}</Badge>
+                      )}
+                    </div>
                   </Link>
                 </td>
 

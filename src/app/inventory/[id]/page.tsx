@@ -51,18 +51,32 @@ export default async function InventoryDetailPage({ params }: Props) {
         <div className="space-y-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-bold text-zinc-100">{item.cardName}</h1>
+              <h1 className="text-2xl font-bold text-zinc-100">
+                {item.category === 'SPORTS' && item.playerName ? item.playerName : item.cardName}
+              </h1>
               {item.gradingCompany && item.grade && (
                 <Badge variant="purple" className="text-sm px-2.5 py-1">{item.gradingCompany} {item.grade}</Badge>
               )}
               {!item.gradingCompany && item.conditionRaw && (
                 <Badge variant={item.conditionRaw === 'NM' ? 'success' : 'warning'}>{item.conditionRaw}</Badge>
               )}
+              {item.rookie && <Badge variant="warning">RC</Badge>}
+              {item.autograph && <Badge variant="purple">AUTO</Badge>}
+              {item.memorabilia && <Badge variant="info">PATCH</Badge>}
+              {item.serialNumber && <Badge variant="default">{item.serialNumber}</Badge>}
             </div>
             <p className="text-zinc-400 mt-1">
-              {[item.setName, item.cardNumber && `#${item.cardNumber}`, item.variant].filter(Boolean).join(' · ')}
+              {item.category === 'SPORTS'
+                ? [item.setName, item.cardNumber && `#${item.cardNumber}`, item.parallel, item.insertName].filter(Boolean).join(' · ')
+                : [item.setName, item.cardNumber && `#${item.cardNumber}`, item.variant].filter(Boolean).join(' · ')
+              }
             </p>
-            <p className="text-xs text-zinc-600 mt-0.5">{item.language} · {item.game}</p>
+            <p className="text-xs text-zinc-600 mt-0.5">
+              {item.category === 'SPORTS'
+                ? [item.teamName, item.league, item.sport].filter(Boolean).join(' · ')
+                : `${item.language} · ${item.game}`
+              }
+            </p>
           </div>
 
           {/* Stats grid */}
@@ -80,6 +94,22 @@ export default async function InventoryDetailPage({ params }: Props) {
               valueClass={pnlColor(item.unrealizedPnL)}
             />
           </div>
+
+          {/* Sports metadata */}
+          {item.category === 'SPORTS' && (
+            <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm grid grid-cols-2 gap-2">
+              {item.playerName && <Info label="Player" value={item.playerName} />}
+              {item.teamName && <Info label="Team" value={item.teamName} />}
+              {item.season && <Info label="Season" value={item.season} />}
+              {item.manufacturer && <Info label="Manufacturer" value={item.manufacturer} />}
+              {item.brand && <Info label="Brand" value={item.brand} />}
+              {item.productLine && <Info label="Product" value={item.productLine} />}
+              {item.parallel && <Info label="Parallel" value={item.parallel} />}
+              {item.insertName && <Info label="Insert" value={item.insertName} />}
+              {item.serialNumber && <Info label="Serial #" value={item.serialNumber} />}
+              {item.league && <Info label="League" value={item.league} />}
+            </div>
+          )}
 
           {/* Purchase info */}
           <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm grid grid-cols-2 gap-2">

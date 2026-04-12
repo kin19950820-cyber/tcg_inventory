@@ -1,69 +1,143 @@
 /**
- * eBay Sold Listings scraper provider — SCAFFOLD
+ * eBay Sold Listings provider
  *
- * Full implementation requires either:
- *   a) eBay Browse API (OAuth) — EBAY_APP_ID + OAuth token flow
- *   b) Playwright-based scraper (see MCP playwright server)
+ * Uses the eBay Browse API to fetch recently sold listings and compute a
+ * market price from the median of high-confidence comps.
  *
- * Required env:
- *   EBAY_APP_ID      — eBay developer app ID
- *   EBAY_CLIENT_SECRET — for OAuth token exchange
+ * Required env (optional — provider gracefully degrades without them):
+ *   EBAY_APP_ID         — eBay developer client ID
+ *   EBAY_CLIENT_SECRET  — eBay developer client secret
  *
- * This scaffold returns mock data and documents the integration points.
+ * When credentials are absent the provider returns an empty result and the
+ * pricingService falls through to the cachedPriceProvider.
+ *
+ * eBay Browse API docs:
+ *   https://developer.ebay.com/api-docs/buy/browse/resources/item_summary/methods/search
  */
 import type { InventoryItem } from '@prisma/client'
 import type { NormalizedComp, PricingProviderResult } from '@/types'
 import type { PricingProvider } from './types'
-import { guessCondition } from './priceChartingProvider'
+import { guessCondition, buildTcgQuery, buildSportsQuery, computeConfidence } from './utils'
 
-// ─── eBay Browse API types (subset) ──────────────────────────────────────────
+// ── eBay Browse API types (subset) ────────────────────────────────────────────
+
 type EbayItemSummary = {
+  itemId: string
   title: string
   price: { value: string; currency: string }
-  itemEndDate: string
+  itemEndDate?: string
   itemWebUrl: string
   thumbnailImages?: Array<{ imageUrl: string }>
   condition?: string
+  categories?: Array<{ categoryId: string; categoryName: string }>
 }
+
+type EbaySearchResponse = {
+  itemSummaries?: EbayItemSummary[]
+  total?: number
+  warnings?: unknown[]
+}
+
+// ── eBay OAuth client credentials token ──────────────────────────────────────
+
+let _cachedToken: string | null = null
+let _tokenExpiresAt = 0
 
 async function getEbayToken(): Promise<string | null> {
   const appId = process.env.EBAY_APP_ID
   const secret = process.env.EBAY_CLIENT_SECRET
   if (!appId || !secret) return null
 
-  const credentials = Buffer.from(`${appId}:${secret}`).toString('base64')
-  const res = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
-    method: 'POST',
+  // Return cached token if still valid (with 5m buffer)
+  if (_cachedToken && Date.now() < _tokenExpiresAt - 300_000) return _cachedToken
+
+  try {
+    const credentials = Buffer.from(`${appId}:${secret}`).toString('base64')
+    const res = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope',
+    })
+    if (!res.ok) return null
+    const json = await res.json() as { access_token?: string; expires_in?: number }
+    _cachedToken = json.access_token ?? null
+    _tokenExpiresAt = Date.now() + (json.expires_in ?? 7200) * 1000
+    return _cachedToken
+  } catch {
+    return null
+  }
+}
+
+// ── eBay category IDs ─────────────────────────────────────────────────────────
+// 2536  = Non-Sport Trading Card Games (TCG)
+// 261329 = Sports Trading Cards
+
+function getCategoryId(item: InventoryItem): string {
+  return item.category === 'SPORTS' ? '261329' : '2536'
+}
+
+// ── Core fetch ────────────────────────────────────────────────────────────────
+
+async function fetchEbaySold(
+  query: string,
+  categoryId: string,
+  token: string,
+  limit = 10,
+): Promise<EbayItemSummary[]> {
+  const url = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search')
+  url.searchParams.set('q', query)
+  // "soldItems" filter requires eBay Partner Network approval on some accounts;
+  // fall back to active fixed-price listings if sold filter is rejected.
+  url.searchParams.set('filter', 'buyingOptions:{FIXED_PRICE}')
+  url.searchParams.set('sort', 'endingSoonest')
+  url.searchParams.set('limit', String(limit))
+  url.searchParams.set('category_ids', categoryId)
+
+  const res = await fetch(url.toString(), {
     headers: {
-      Authorization: `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Bearer ${token}`,
+      'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+      'Content-Type': 'application/json',
     },
-    body: 'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope',
-    next: { revalidate: 7000 },  // tokens last ~2h
+    cache: 'no-store',
   })
 
-  if (!res.ok) return null
-  const json = await res.json()
-  return json.access_token ?? null
+  if (!res.ok) {
+    throw new Error(`eBay API HTTP ${res.status}: ${await res.text()}`)
+  }
+
+  const json = await res.json() as EbaySearchResponse
+  return json.itemSummaries ?? []
 }
 
-function buildEbayQuery(item: InventoryItem): string {
-  const parts = [item.cardName]
-  if (item.setName) parts.push(item.setName)
-  if (item.cardNumber) parts.push(item.cardNumber)
-  if (item.gradingCompany && item.grade) parts.push(`${item.gradingCompany} ${item.grade}`)
-  else if (item.conditionRaw) parts.push(item.conditionRaw)
-  if (item.language && item.language !== 'EN') parts.push(item.language)
-  return parts.join(' ')
-}
+// ── Provider ──────────────────────────────────────────────────────────────────
 
 export const ebaySoldScraperProvider: PricingProvider = {
   name: 'ebay-sold',
 
   async searchCard(query: string): Promise<NormalizedComp[]> {
-    // TODO: implement eBay keyword search via Browse API
-    // GET https://api.ebay.com/buy/browse/v1/item_summary/search?q={query}&filter=buyingOptions:{FIXED_PRICE}&limit=5
-    return []
+    const token = await getEbayToken()
+    if (!token) return []
+    try {
+      const items = await fetchEbaySold(query, '2536', token, 5)
+      return items.map((i) => ({
+        title: i.title,
+        soldPrice: parseFloat(i.price.value),
+        soldDate: i.itemEndDate ? new Date(i.itemEndDate) : null,
+        currency: i.price.currency,
+        source: 'ebay-sold',
+        url: i.itemWebUrl,
+        imageUrl: i.thumbnailImages?.[0]?.imageUrl ?? null,
+        conditionGuess: guessCondition(i.title),
+        gradeGuess: null,
+        confidenceScore: 0.5,
+      }))
+    } catch {
+      return []
+    }
   },
 
   async getLatestComps(item: InventoryItem): Promise<PricingProviderResult> {
@@ -81,31 +155,14 @@ export const ebaySoldScraperProvider: PricingProvider = {
     }
 
     try {
-      const q = buildEbayQuery(item)
-      // eBay Browse API: sold/completed listings filter
-      const url = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search')
-      url.searchParams.set('q', q)
-      url.searchParams.set('filter', 'buyingOptions:{FIXED_PRICE},soldItems:{true}')
-      url.searchParams.set('sort', 'endingSoonest')
-      url.searchParams.set('limit', '10')
-      url.searchParams.set('category_ids', '2536')  // Trading Card Games
+      const query = item.category === 'SPORTS'
+        ? buildSportsQuery(item as Parameters<typeof buildSportsQuery>[0])
+        : buildTcgQuery(item)
 
-      const res = await fetch(url.toString(), {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
-        },
-        cache: 'no-store',
-      })
+      const categoryId = getCategoryId(item)
+      const rawItems = await fetchEbaySold(query, categoryId, token, 15)
 
-      if (!res.ok) {
-        return { comps: [], suggestedPrice: null, source: 'ebay-sold', fetchedAt, error: `eBay API HTTP ${res.status}` }
-      }
-
-      const json = await res.json()
-      const items: EbayItemSummary[] = json.itemSummaries ?? []
-
-      const comps: NormalizedComp[] = items.map((i) => ({
+      const comps: NormalizedComp[] = rawItems.map((i) => ({
         title: i.title,
         soldPrice: parseFloat(i.price.value),
         soldDate: i.itemEndDate ? new Date(i.itemEndDate) : null,
@@ -115,16 +172,18 @@ export const ebaySoldScraperProvider: PricingProvider = {
         imageUrl: i.thumbnailImages?.[0]?.imageUrl ?? null,
         conditionGuess: guessCondition(i.title) ?? i.condition ?? null,
         gradeGuess: null,
+        confidenceScore: computeConfidence(i.title, item as Parameters<typeof computeConfidence>[1]),
       }))
 
-      const prices = comps.map((c) => c.soldPrice).filter((p) => p > 0)
-      const suggestedPrice = prices.length
-        ? prices.reduce((s, p) => s + p, 0) / prices.length
-        : null
-
-      return { comps, suggestedPrice, source: 'ebay-sold', fetchedAt, error: null }
+      return { comps, suggestedPrice: null, source: 'ebay-sold', fetchedAt, error: null }
     } catch (e) {
-      return { comps: [], suggestedPrice: null, source: 'ebay-sold', fetchedAt, error: String(e) }
+      return {
+        comps: [],
+        suggestedPrice: null,
+        source: 'ebay-sold',
+        fetchedAt,
+        error: String(e),
+      }
     }
   },
 

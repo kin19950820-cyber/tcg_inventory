@@ -20,17 +20,8 @@ function buildSearchQuery(item: InventoryItem): string {
   return parts.join(' ')
 }
 
-function guessCondition(title: string): string | null {
-  const t = title.toLowerCase()
-  if (t.includes('psa 10') || t.includes('gem mint')) return 'PSA 10'
-  if (t.includes('psa 9'))  return 'PSA 9'
-  if (t.includes('bgs 10') || t.includes('pristine')) return 'BGS 10'
-  if (t.includes('gem')) return 'Gem Mint'
-  if (t.includes('nm') || t.includes('near mint')) return 'NM'
-  if (t.includes('lp') || t.includes('light play')) return 'LP'
-  if (t.includes('mp') || t.includes('moderate')) return 'MP'
-  return null
-}
+// guessCondition moved to utils.ts — re-export for any callers
+export { guessCondition } from './utils'
 
 // Mock comps used when no API key is configured
 function mockComps(item: InventoryItem): NormalizedComp[] {
@@ -146,5 +137,3 @@ export const priceChartingProvider: PricingProvider = {
     return result.suggestedPrice
   },
 }
-
-export { guessCondition }

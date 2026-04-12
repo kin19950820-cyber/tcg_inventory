@@ -3,12 +3,53 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+// ── Users & Auth ──────────────────────────────────────────────────────────────
+
+model User {
+  id                  String   @id @default(cuid())
+  displayName         String?
+  username            String   @unique
+  email               String   @unique
+  passwordHash        String?
+  avatarUrl           String?
+  bio                 String?
+  favoriteCategories  String?  // JSON: ["TCG","SPORTS"]
+  locationCountry     String?
+  profileVisibility   String   @default("PUBLIC")          // PUBLIC | PRIVATE
+  inventoryVisibility String   @default("PRIVATE")         // PRIVATE | PUBLIC | TRADEABLE_ONLY
+  allowTradeMessages  Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  inventoryItems              InventoryItem[]
+  productFollows              UserProductFollow[]
+  sentMessages                Message[]                @relation("SentMessages")
+  conversationParticipants    ConversationParticipant[]
+  notifications               Notification[]
+  tradeProposalsAsProposer    TradeProposal[]          @relation("ProposerTrades")
+  tradeProposalsAsRecipient   TradeProposal[]          @relation("RecipientTrades")
+  tradeProposalItems          TradeProposalItem[]      @relation("ItemOwner")
+
+  @@index([username])
+  @@index([email])
+}
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
 model InventoryItem {
   id                    String    @id @default(cuid())
+
+  // ── Owner ────────────────────────────────────────────────────────────────
+  userId                String?
+  isPublic              Boolean   @default(false)
+  isTradeable           Boolean   @default(false)
+
+  // ── Shared identity ──────────────────────────────────────────────────────
+  category              String    @default("TCG")   // TCG | SPORTS
   game                  String    @default("pokemon")
   cardName              String
   setName               String?
@@ -16,10 +57,33 @@ model InventoryItem {
   language              String    @default("EN")
   rarity                String?
   variant               String?
+
+  // ── Condition / grading ──────────────────────────────────────────────────
   conditionRaw          String?
   gradingCompany        String?
   grade                 String?
   certNumber            String?
+
+  // ── Sports-specific fields ────────────────────────────────────────────────
+  sport                 String?
+  league                String?
+  season                String?
+  manufacturer          String?
+  brand                 String?
+  productLine           String?
+  subsetName            String?
+  insertName            String?
+  parallel              String?
+  serialNumbered        Boolean   @default(false)
+  serialNumber          String?
+  autograph             Boolean   @default(false)
+  memorabilia           Boolean   @default(false)
+  rookie                Boolean   @default(false)
+  playerName            String?
+  teamName              String?
+  year                  Int?
+
+  // ── Acquisition ──────────────────────────────────────────────────────────
   quantity              Int       @default(1)
   purchasePrice         Float
   purchaseDate          DateTime  @default(now())
@@ -27,22 +91,32 @@ model InventoryItem {
   shippingCost          Float     @default(0)
   source                String?
   notes                 String?
+
+  // ── Images ───────────────────────────────────────────────────────────────
   imageUrl              String?
   manualImageUrl        String?
+
+  // ── Pricing ──────────────────────────────────────────────────────────────
   latestMarketPrice     Float?
   latestMarketCurrency  String    @default("USD")
   latestMarketSource    String?
   latestMarketCheckedAt DateTime?
   priceOverride         Float?
   priceOverrideNote     String?
+
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  transactions Transaction[]
-  priceComps   PriceComp[]
+  user               User?               @relation(fields: [userId], references: [id])
+  transactions       Transaction[]
+  priceComps         PriceComp[]
+  tradeProposalItems TradeProposalItem[]
 
+  @@index([userId])
+  @@index([category, sport])
   @@index([game, cardName])
   @@index([gradingCompany, certNumber])
+  @@index([playerName])
 }
 
 model Transaction {
@@ -68,18 +142,18 @@ model Transaction {
 }
 
 model PriceComp {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   inventoryItemId String
   title           String
   soldPrice       Float
   soldDate        DateTime?
-  currency        String   @default("USD")
+  currency        String    @default("USD")
   source          String
   url             String?
   imageUrl        String?
   conditionGuess  String?
   gradeGuess      String?
-  fetchedAt       DateTime @default(now())
+  fetchedAt       DateTime  @default(now())
 
   inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
 
@@ -87,21 +161,193 @@ model PriceComp {
 }
 
 model CardCatalog {
-  id                  String   @id @default(cuid())
-  game                String   @default("pokemon")
-  cardName            String
-  setName             String?
-  cardNumber          String?
-  language            String   @default("EN")
-  rarity              String?
-  variant             String?
-  normalizedSearchText String
-  imageUrl            String?
-  externalSource      String?
-  externalId          String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                   String   @id @default(cuid())
 
+  category             String   @default("TCG")
+  game                 String   @default("pokemon")
+  cardName             String
+  setName              String?
+  cardNumber           String?
+  language             String   @default("EN")
+  rarity               String?
+  variant              String?
+
+  sport                String?
+  league               String?
+  season               String?
+  manufacturer         String?
+  brand                String?
+  productLine          String?
+  subsetName           String?
+  insertName           String?
+  parallel             String?
+  serialNumbered       Boolean  @default(false)
+  autograph            Boolean  @default(false)
+  memorabilia          Boolean  @default(false)
+  rookie               Boolean  @default(false)
+  playerName           String?
+  teamName             String?
+  year                 Int?
+
+  normalizedSearchText String
+  imageUrl             String?
+  externalSource       String?
+  externalId           String?
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([category, sport])
   @@index([game, normalizedSearchText])
   @@index([externalSource, externalId])
+  @@index([playerName])
+}
+
+// ── Product Releases & Reminders ──────────────────────────────────────────────
+
+model ProductRelease {
+  id               String    @id @default(cuid())
+  name             String
+  manufacturer     String?
+  brand            String?
+  category         String    @default("TCG")   // TCG | SPORTS
+  sport            String?
+  game             String?
+  season           String?
+  year             Int?
+  imageUrl         String?
+  description      String?
+  announcementDate DateTime?
+  preorderDate     DateTime?
+  releaseDate      DateTime?
+  productStatus    String    @default("ANNOUNCED") // ANNOUNCED | PREORDER | RELEASED | SOLD_OUT | ARCHIVED
+  reminderEligible Boolean   @default(true)
+  externalUrl      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  userFollows      UserProductFollow[]
+
+  @@index([productStatus])
+  @@index([releaseDate])
+  @@index([preorderDate])
+}
+
+model UserProductFollow {
+  id                  String         @id @default(cuid())
+  userId              String
+  productReleaseId    String
+  isFollowing         Boolean        @default(true)
+  remindAnnouncement  Boolean        @default(false)
+  remindPreorder      Boolean        @default(true)
+  remindRelease       Boolean        @default(true)
+  remindDaysBefore    Int            @default(1)   // days before event to notify
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productRelease ProductRelease @relation(fields: [productReleaseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productReleaseId])
+  @@index([userId])
+}
+
+// ── Messaging & Trade Proposals ───────────────────────────────────────────────
+
+model Conversation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants   ConversationParticipant[]
+  messages       Message[]
+  tradeProposals TradeProposal[]
+}
+
+model ConversationParticipant {
+  id             String @id @default(cuid())
+  conversationId String
+  userId         String
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String    @id @default(cuid())
+  conversationId String
+  senderUserId   String
+  body           String
+  messageType    String    @default("TEXT") // TEXT | TRADE_PROPOSAL | SYSTEM
+  createdAt      DateTime  @default(now())
+  readAt         DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("SentMessages", fields: [senderUserId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([senderUserId])
+}
+
+model TradeProposal {
+  id                   String   @id @default(cuid())
+  conversationId       String
+  proposerUserId       String
+  recipientUserId      String
+  status               String   @default("PENDING") // PENDING | ACCEPTED | REJECTED | COUNTERED | CANCELLED
+  cashAdjustmentAmount Float    @default(0)
+  note                 String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  proposer     User         @relation("ProposerTrades", fields: [proposerUserId], references: [id])
+  recipient    User         @relation("RecipientTrades", fields: [recipientUserId], references: [id])
+  items        TradeProposalItem[]
+
+  @@index([conversationId])
+  @@index([proposerUserId])
+  @@index([recipientUserId])
+}
+
+model TradeProposalItem {
+  id              String @id @default(cuid())
+  tradeProposalId String
+  ownerUserId     String
+  inventoryItemId String
+  quantity        Int    @default(1)
+  snapshotName    String? // item name at proposal time
+  snapshotValue   Float?  // market value at proposal time
+
+  tradeProposal TradeProposal @relation(fields: [tradeProposalId], references: [id], onDelete: Cascade)
+  owner         User          @relation("ItemOwner", fields: [ownerUserId], references: [id])
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([tradeProposalId])
+  @@index([inventoryItemId])
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String
+  // NEW_MESSAGE | NEW_TRADE_PROPOSAL | TRADE_ACCEPTED | TRADE_REJECTED |
+  // TRADE_COUNTERED | TRADE_CANCELLED | RELEASE_REMINDER | PREORDER_REMINDER |
+  // ANNOUNCEMENT | PRODUCT_RELEASED
+  title       String
+  body        String?
+  relatedId   String?  // conversationId | tradeProposalId | productReleaseId
+  relatedType String?  // CONVERSATION | TRADE_PROPOSAL | PRODUCT_RELEASE
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
