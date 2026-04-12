@@ -1,0 +1,18 @@
+{
+  "name": "snkrdunk-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Puppeteer scraper for SNKRDUNK trading card prices",
+  "main": "scraper.js",
+  "type": "commonjs",
+  "scripts": {
+    "scrape": "node scraper.js",
+    "search": "node scraper.js --mode=search",
+    "product": "node scraper.js --mode=product"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "csv-writer": "^1.6.0",
+    "puppeteer": "^22.0.0"
+  }
+}
