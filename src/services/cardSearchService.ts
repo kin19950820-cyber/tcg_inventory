@@ -214,14 +214,50 @@ async function ensureCatalogSeeded(): Promise<void> {
   if (count > 0) return
 
   console.log('[cardSearchService] Catalog is empty — inserting fallback seed data')
-  await prisma.cardCatalog.createMany({
-    data: FALLBACK_SEED.map((card) => ({
-      ...card,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })),
-    skipDuplicates: true,
-  })
+  let inserted = 0
+  for (const card of FALLBACK_SEED) {
+    try {
+      await prisma.cardCatalog.upsert({
+        where: { id: card.id },
+        update: {},
+        create: {
+          id:                   card.id,
+          category:             card.category,
+          game:                 card.game,
+          cardName:             card.cardName,
+          setName:              card.setName,
+          cardNumber:           card.cardNumber,
+          language:             card.language,
+          rarity:               card.rarity,
+          variant:              card.variant,
+          imageUrl:             card.imageUrl,
+          normalizedSearchText: card.normalizedSearchText,
+          externalSource:       card.externalSource,
+          externalId:           card.externalId,
+          sport:                card.sport,
+          league:               card.league,
+          season:               card.season,
+          manufacturer:         card.manufacturer,
+          brand:                card.brand,
+          productLine:          card.productLine,
+          subsetName:           card.subsetName,
+          insertName:           card.insertName,
+          parallel:             card.parallel,
+          playerName:           card.playerName,
+          teamName:             card.teamName,
+          year:                 card.year,
+          serialNumbered:       card.serialNumbered,
+          autograph:            card.autograph,
+          memorabilia:          card.memorabilia,
+          rookie:               card.rookie,
+        },
+      })
+      inserted++
+    } catch (err) {
+      console.error(`[cardSearchService] Failed to upsert fallback card ${card.id}:`, err)
+    }
+  }
+  console.log(`[cardSearchService] Fallback seed inserted ${inserted}/${FALLBACK_SEED.length} cards`)
 }
 
 // ── Cache management ──────────────────────────────────────────────────────────
@@ -231,7 +267,11 @@ async function getCatalog(): Promise<CardCatalog[]> {
     return catalogCache
   }
 
-  await ensureCatalogSeeded()
+  try {
+    await ensureCatalogSeeded()
+  } catch (err) {
+    console.error('[cardSearchService] ensureCatalogSeeded failed (non-fatal):', err)
+  }
 
   catalogCache = await prisma.cardCatalog.findMany({ orderBy: { cardName: 'asc' } })
   cacheBuiltAt = new Date()
