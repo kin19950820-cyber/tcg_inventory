@@ -7,17 +7,20 @@ import { formatDate } from '@/lib/utils'
 type ProductRelease = {
   id: string
   name: string
-  description: string | null
-  imageUrl: string | null
-  productStatus: string
-  releaseDate: string | Date | null
-  preorderDate: string | Date | null
-  announcementDate: string | Date | null
-  productLine: string | null
+  manufacturer: string | null
+  brand: string | null
   category: string
-  language: string
-  msrp: number | null
-  sourceUrl: string | null
+  sport: string | null
+  game: string | null
+  season: string | null
+  year: number | null
+  imageUrl: string | null
+  description: string | null
+  announcementDate: Date | null
+  preorderDate: Date | null
+  releaseDate: Date | null
+  productStatus: string
+  externalUrl: string | null
 }
 
 interface Props {
@@ -78,23 +81,17 @@ export function ProductReleaseRow({ product, isFollowing: initialFollowing }: Pr
         </div>
         <div className="flex items-center gap-3 mt-0.5 flex-wrap">
           {dateLabel && <p className="text-xs text-zinc-500">{dateLabel}</p>}
-          {product.productLine && (
-            <p className="text-xs text-zinc-600">{product.productLine}</p>
-          )}
-          {product.language !== 'EN' && (
-            <p className="text-xs text-zinc-600">{product.language}</p>
-          )}
-          {product.msrp != null && (
-            <p className="text-xs text-zinc-500">${product.msrp.toFixed(2)}</p>
+          {product.season && (
+            <p className="text-xs text-zinc-600">{product.season}</p>
           )}
         </div>
       </div>
 
       {/* Actions */}
       <div className="flex items-center gap-1.5 flex-shrink-0">
-        {product.sourceUrl && (
+        {product.externalUrl && (
           <a
-            href={product.sourceUrl}
+            href={product.externalUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="p-1.5 rounded-md text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
