@@ -14,6 +14,7 @@
 import { prisma } from '@/lib/prisma'
 import { invalidateCatalogCache } from '@/services/cardSearchService'
 import { SPORTS_CATALOG_ENTRIES } from '@/services/scrapers/sportsCardCatalog'
+import { BOX_CATALOG_ENTRIES } from '@/services/scrapers/boxCatalog'
 import {
   POKEMON_SYNC_SETS,
   fetchSetCards,
@@ -24,6 +25,7 @@ export interface SyncResult {
   status: 'ok' | 'partial' | 'error'
   cleaned?: number
   sportsUpserted?: number
+  boxesUpserted?: number
   pokemonFetched?: number
   pokemonUpserted?: number
   pokemonSetsProcessed?: number
@@ -77,6 +79,42 @@ async function upsertSportsCatalog(): Promise<number> {
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       create: entry as any,
+    })
+    count++
+  }
+  return count
+}
+
+async function upsertBoxCatalog(): Promise<number> {
+  let count = 0
+  for (const entry of BOX_CATALOG_ENTRIES) {
+    await prisma.cardCatalog.upsert({
+      where: { id: entry.id },
+      update: {
+        normalizedSearchText: entry.normalizedSearchText,
+        imageUrl: entry.imageUrl,
+        variant:  entry.variant,
+        setName:  entry.setName,
+      },
+      create: {
+        id:                   entry.id,
+        category:             'SEALED',
+        game:                 entry.game,
+        cardName:             entry.cardName,
+        setName:              entry.setName,
+        cardNumber:           null,
+        language:             'EN',
+        rarity:               null,
+        variant:              entry.variant,
+        imageUrl:             entry.imageUrl,
+        normalizedSearchText: entry.normalizedSearchText,
+        externalSource:       'manual',
+        externalId:           null,
+        sport:          null, league: null, season: null, manufacturer: null,
+        brand:          null, productLine: null, subsetName: null, insertName: null,
+        parallel:       null, playerName: null, teamName: null, year: null,
+        serialNumbered: false, autograph: false, memorabilia: false, rookie: false,
+      },
     })
     count++
   }
@@ -147,14 +185,15 @@ async function upsertPokemonSet(setId: string): Promise<{ fetched: number; upser
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-/** Sports-only sync (~2 s). Safe on Vercel Hobby. */
+/** Sports + boxes sync (~2 s). Safe on Vercel Hobby. */
 export async function runSportsSync(): Promise<SyncResult> {
   const start = Date.now()
   try {
     const cleaned = await cleanupInvalidRecords()
     const sportsUpserted = await upsertSportsCatalog()
+    const boxesUpserted = await upsertBoxCatalog()
     await invalidateCatalogCache()
-    return { status: 'ok', cleaned, sportsUpserted, durationMs: Date.now() - start }
+    return { status: 'ok', cleaned, sportsUpserted, boxesUpserted, durationMs: Date.now() - start }
   } catch (err) {
     return { status: 'error', error: String(err), durationMs: Date.now() - start }
   }
@@ -189,6 +228,9 @@ export async function runCatalogSync(): Promise<SyncResult> {
     const sportsUpserted = await upsertSportsCatalog()
     console.log(`[catalogSync] Sports: ${sportsUpserted} upserted`)
 
+    const boxesUpserted = await upsertBoxCatalog()
+    console.log(`[catalogSync] Boxes: ${boxesUpserted} upserted`)
+
     let totalFetched = 0, totalUpserted = 0
     const failedSets: string[] = []
 
@@ -211,6 +253,7 @@ export async function runCatalogSync(): Promise<SyncResult> {
       status: failedSets.length > 0 ? 'partial' : 'ok',
       cleaned,
       sportsUpserted,
+      boxesUpserted,
       pokemonFetched: totalFetched,
       pokemonUpserted: totalUpserted,
       pokemonSetsProcessed: POKEMON_SYNC_SETS.length - failedSets.length,

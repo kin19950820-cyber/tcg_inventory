@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { RefreshCw, CheckCircle, Database } from 'lucide-react'
 import { syncSports, syncPokemonSet } from '@/app/actions/catalogSync'
 
-interface Stats { total: number; pokemon: number; sports: number }
+interface Stats { total: number; pokemon: number; sports: number; sealed?: number }
 interface Props { stats: Stats }
 
 const ALL_SETS = [
@@ -32,8 +32,9 @@ export function CatalogStatusBar({ stats: initialStats }: Props) {
       const j2 = await syncPokemonSet('sv3pt5')
 
       const sportsCount = 'sportsUpserted' in j1 ? j1.sportsUpserted : 0
+      const boxCount    = 'boxesUpserted'  in j1 ? j1.boxesUpserted  : 0
       const pokemonCount = 'pokemonUpserted' in j2 ? j2.pokemonUpserted : 0
-      setResult(`Synced ${sportsCount} sports + ${pokemonCount} Pokémon (151 set). Refresh page to search.`)
+      setResult(`Synced ${sportsCount} sports + ${boxCount} boxes + ${pokemonCount} Pokémon (151 set). Refresh page to search.`)
     } catch (err) {
       setResult(`Error: ${String(err)}`)
     } finally {
@@ -68,7 +69,7 @@ export function CatalogStatusBar({ stats: initialStats }: Props) {
       <div className="mb-4 flex items-center gap-2 text-xs text-zinc-600">
         <CheckCircle size={12} className="text-emerald-600" />
         <span>
-          Catalog: <span className="text-zinc-400">{initialStats.total}</span> cards ({initialStats.pokemon} Pokémon · {initialStats.sports} sports)
+          Catalog: <span className="text-zinc-400">{initialStats.total}</span> cards ({initialStats.pokemon} Pokémon · {initialStats.sports} sports{initialStats.sealed ? ` · ${initialStats.sealed} boxes` : ''})
         </span>
         <button
           onClick={() => setExpanded(true)}
@@ -92,7 +93,7 @@ export function CatalogStatusBar({ stats: initialStats }: Props) {
           <p className="font-medium">
             {isEmpty
               ? 'Card catalog is empty — search will not return results'
-              : `Catalog: ${initialStats.total} cards (${initialStats.pokemon} Pokémon · ${initialStats.sports} sports)`}
+              : `Catalog: ${initialStats.total} cards (${initialStats.pokemon} Pokémon · ${initialStats.sports} sports${initialStats.sealed ? ` · ${initialStats.sealed} boxes` : ''})`}
           </p>
           {result && (
             <p className="mt-1 text-xs text-zinc-400 break-words">{result}</p>

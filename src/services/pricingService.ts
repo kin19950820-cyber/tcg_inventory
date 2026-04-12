@@ -1,13 +1,15 @@
 import { prisma } from '@/lib/prisma'
 import { manualPriceProvider } from '@/providers/pricing/manualPriceProvider'
 import { ebaySoldScraperProvider } from '@/providers/pricing/ebaySoldScraperProvider'
+import { snkrdunkProvider } from '@/providers/pricing/snkrdunkProvider'
 import { cachedPriceProvider } from '@/providers/pricing/cachedPriceProvider'
 import type { InventoryItem } from '@prisma/client'
 import type { NormalizedComp, PricingProviderResult } from '@/types'
 
 // ── Provider priority chain ───────────────────────────────────────────────────
-// manual override → eBay sold comps → cached historical price → no-price fallback
-// PriceCharting is NOT in this chain; it can be re-added if an API key is configured.
+// manual override → eBay sold (last 5) → SNKRDUNK sold (last 5) → cached price
+// eBay uses Finding API when EBAY_APP_ID is set, otherwise HTML scrapes the sold page.
+// SNKRDUNK prices are in JPY, converted to USD via SNKRDUNK_JPY_USD_RATE (default 0.0067).
 
 // ── Statistical helpers ───────────────────────────────────────────────────────
 
@@ -123,7 +125,7 @@ export async function refreshPriceForItem(itemId: string): Promise<PricingProvid
     return { ...result, stats: computeStats(result.comps) }
   }
 
-  // 2. eBay sold comps
+  // 2. eBay sold comps (Finding API → HTML scrape fallback)
   let liveResult: PricingProviderResult | null = null
   try {
     const ebayResult = await ebaySoldScraperProvider.getLatestComps(item)
@@ -132,6 +134,18 @@ export async function refreshPriceForItem(itemId: string): Promise<PricingProvid
     }
   } catch {
     // fall through
+  }
+
+  // 3. SNKRDUNK sold comps (if eBay returned nothing)
+  if (!liveResult) {
+    try {
+      const snkrResult = await snkrdunkProvider.getLatestComps(item)
+      if (snkrResult.comps.length > 0) {
+        liveResult = snkrResult
+      }
+    } catch {
+      // fall through
+    }
   }
 
   if (liveResult) {

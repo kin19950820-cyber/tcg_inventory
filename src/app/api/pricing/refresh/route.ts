@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { refreshPriceForItem, refreshAllPrices } from '@/services/pricingService'
+import { refreshPriceForItem, refreshAllPrices, getCompsForItem } from '@/services/pricingService'
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,7 +8,9 @@ export async function POST(req: NextRequest) {
 
     if (itemId) {
       const result = await refreshPriceForItem(itemId)
-      return NextResponse.json({ ok: true, data: result })
+      // Return the persisted comps (from DB) so the client can display them immediately
+      const comps = await getCompsForItem(itemId)
+      return NextResponse.json({ ok: true, data: { ...result, comps } })
     } else {
       const result = await refreshAllPrices()
       return NextResponse.json({ ok: true, data: result })

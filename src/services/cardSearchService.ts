@@ -328,26 +328,47 @@ function keywordFallback(query: string, catalog: CardCatalog[], limit: number): 
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function searchCards(query: string, limit = 12): Promise<CardCatalog[]> {
+export async function searchCards(
+  query: string,
+  limit = 12,
+  category?: string,
+): Promise<CardCatalog[]> {
   if (!query || query.trim().length < 2) return []
 
   const catalog = await getCatalog()
-  let results = searchCatalog(query.trim(), catalog, limit)
+  const pool = category ? catalog.filter((c) => c.category === category) : catalog
+
+  let results = searchCatalog(query.trim(), pool, limit)
 
   // Fuzzy found nothing → try token-based keyword fallback
-  if (results.length === 0 && catalog.length > 0) {
-    results = keywordFallback(query.trim(), catalog, limit)
+  if (results.length === 0 && pool.length > 0) {
+    results = keywordFallback(query.trim(), pool, limit)
   }
 
   return results.map((r) => r.item)
 }
 
 /** Returns top N catalog items for display on focus (no query required). */
-export async function getTopCards(limit = 8): Promise<CardCatalog[]> {
+export async function getTopCards(limit = 8, category?: string): Promise<CardCatalog[]> {
   const catalog = await getCatalog()
   if (catalog.length === 0) return []
 
-  // Mix: half Pokemon, half sports — prioritise rookies for sports
+  // Sealed/box mode — return popular box products
+  if (category === 'SEALED') {
+    return catalog
+      .filter((c) => c.category === 'SEALED')
+      .slice(0, limit)
+  }
+
+  // Sports mode — return only sports cards, rookies first
+  if (category === 'SPORTS') {
+    return catalog
+      .filter((c) => c.category === 'SPORTS')
+      .sort((a, b) => (b.rookie ? 1 : 0) - (a.rookie ? 1 : 0))
+      .slice(0, limit)
+  }
+
+  // Default: mix half Pokemon + half sports, prioritise rookie cards
   const pokemon = catalog
     .filter((c) => c.game === 'pokemon')
     .slice(0, Math.ceil(limit / 2))
@@ -360,12 +381,13 @@ export async function getTopCards(limit = 8): Promise<CardCatalog[]> {
   return [...pokemon, ...sports].slice(0, limit)
 }
 
-export async function getCatalogStats(): Promise<{ total: number; pokemon: number; sports: number }> {
+export async function getCatalogStats(): Promise<{ total: number; pokemon: number; sports: number; sealed: number }> {
   const catalog = await getCatalog()
   return {
     total: catalog.length,
     pokemon: catalog.filter((c) => c.game === 'pokemon').length,
     sports: catalog.filter((c) => c.category === 'SPORTS').length,
+    sealed: catalog.filter((c) => c.category === 'SEALED').length,
   }
 }
 

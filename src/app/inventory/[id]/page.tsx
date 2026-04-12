@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { formatCurrency, formatDate, pnlColor, pnlSign } from '@/lib/utils'
 import { ArrowLeft } from 'lucide-react'
 import { SellButtonClient } from './SellButtonClient'
+import { PriceRefreshClient } from './PriceRefreshClient'
 
 export const dynamic = 'force-dynamic'
 
@@ -123,38 +124,8 @@ export default async function InventoryDetailPage({ params }: Props) {
         </div>
       </div>
 
-      {/* Price comps */}
-      {item.priceComps.length > 0 && (
-        <section>
-          <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">Latest Price Comps</h2>
-          <div className="rounded-xl border border-zinc-800 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-zinc-900/50">
-                <tr>
-                  <th className="text-left px-4 py-2.5 text-xs text-zinc-500">Title</th>
-                  <th className="text-right px-4 py-2.5 text-xs text-zinc-500">Price</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-zinc-500">Condition</th>
-                  <th className="text-right px-4 py-2.5 text-xs text-zinc-500">Date</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-zinc-500">Source</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800">
-                {item.priceComps.map((comp) => (
-                  <tr key={comp.id} className="hover:bg-zinc-800/30">
-                    <td className="px-4 py-2.5 text-zinc-300 max-w-xs truncate">{comp.title}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-zinc-200">{formatCurrency(comp.soldPrice)}</td>
-                    <td className="px-4 py-2.5 text-zinc-500 text-xs">{comp.conditionGuess ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right text-zinc-500 text-xs">{formatDate(comp.soldDate)}</td>
-                    <td className="px-4 py-2.5 text-xs">
-                      <Badge variant="default">{comp.source}</Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+      {/* Price comps — last 5 sold from eBay / SNKRDUNK */}
+      <PriceRefreshClient itemId={item.id} initialComps={item.priceComps} />
 
       {/* Transaction history */}
       {item.transactions.length > 0 && (

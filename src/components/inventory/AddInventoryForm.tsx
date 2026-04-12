@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
+import { syncSports, syncPokemonSet } from '@/app/actions/catalogSync'
 import type { CardCatalog } from '@prisma/client'
 
 // ── Option lists ──────────────────────────────────────────────────────────────
@@ -15,8 +16,23 @@ type ItemType = 'pokemon' | 'sports' | 'sealed' | 'tcg'
 const ITEM_TYPE_OPTIONS: { type: ItemType; label: string }[] = [
   { type: 'pokemon', label: 'Pokemon Card' },
   { type: 'sports', label: 'Basketball / Sports Card' },
-  { type: 'sealed', label: 'Sealed Box / Product' },
+  { type: 'sealed', label: 'Box / Sealed Product' },
   { type: 'tcg', label: 'Other TCG Card' },
+]
+
+const BOX_TYPES = [
+  { value: 'Booster Box', label: 'Booster Box' },
+  { value: 'Elite Trainer Box', label: 'Elite Trainer Box (ETB)' },
+  { value: 'Blister Pack', label: 'Blister Pack' },
+  { value: 'Bundle', label: 'Bundle' },
+  { value: 'Collection Box', label: 'Collection Box' },
+  { value: 'Tin', label: 'Tin' },
+  { value: 'Premium Collection', label: 'Premium Collection' },
+  { value: 'Starter Deck', label: 'Starter / Structure Deck' },
+  { value: 'Booster Pack', label: 'Booster Pack (Single)' },
+  { value: 'Display Box', label: 'Display Box' },
+  { value: 'Case', label: 'Case' },
+  { value: 'Other', label: 'Other' },
 ]
 
 const TCG_GAMES = [
@@ -122,6 +138,7 @@ type FormState = {
   // TCG
   game: string
   cardName: string
+  boxType: string
   setName: string
   cardNumber: string
   language: string
@@ -161,7 +178,7 @@ type FormState = {
 }
 
 const emptyTCG: FormState = {
-  itemType: 'pokemon', category: 'TCG', game: 'pokemon', cardName: '', setName: '', cardNumber: '',
+  itemType: 'pokemon', category: 'TCG', game: 'pokemon', cardName: '', boxType: '', setName: '', cardNumber: '',
   language: 'EN', rarity: '', variant: '',
   sport: '', league: '', season: '', manufacturer: '', brand: '', productLine: '',
   subsetName: '', insertName: '', parallel: '', serialNumbered: false, serialNumber: '',
@@ -179,8 +196,8 @@ const emptySports: FormState = {
 
 const emptySealed: FormState = {
   ...emptyTCG,
-  itemType: 'sealed', category: 'SEALED', game: 'pokemon', cardName: '', setName: '',
-  conditionRaw: 'Sealed', language: 'EN',
+  itemType: 'sealed', category: 'SEALED', game: 'pokemon', cardName: '', boxType: 'Booster Box', setName: '',
+  conditionRaw: 'Sealed', language: 'JA',
 }
 
 interface Props {
@@ -196,6 +213,9 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedCard, setSelectedCard] = useState<CardCatalog | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const [searchKey, setSearchKey] = useState(0)   // incrementing re-mounts CardSearchInput after sync
   const quantityRef = useRef<HTMLInputElement>(null)
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -221,7 +241,24 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
 
   const handleCatalogSelect = (card: CardCatalog) => {
     setSelectedCard(card)
-    if ((card as CardCatalog & { category?: string }).category === 'SPORTS') {
+    const cardCategory = (card as CardCatalog & { category?: string }).category
+
+    if (cardCategory === 'SEALED') {
+      setForm((prev) => ({
+        ...emptySealed,
+        game: card.game ?? prev.game,
+        cardName: card.cardName,
+        setName: card.setName ?? '',
+        boxType: card.variant ?? prev.boxType,
+        imageUrl: card.imageUrl ?? '',
+        source: prev.source,
+        purchaseDate: prev.purchaseDate,
+      }))
+      setTimeout(() => quantityRef.current?.focus(), 50)
+      return
+    }
+
+    if (cardCategory === 'SPORTS') {
       const c = card as CardCatalog & {
         sport?: string; league?: string; season?: string; manufacturer?: string
         brand?: string; productLine?: string; insertName?: string; parallel?: string
@@ -252,7 +289,7 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
         imageUrl: card.imageUrl ?? '',
         game: (c.sport ?? 'sports').toLowerCase(),
       }))
-    } else {
+    } else {  // TCG card
       const game = card.game ?? 'pokemon'
       setForm((prev) => ({
         ...prev,
@@ -271,6 +308,29 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
     setTimeout(() => quantityRef.current?.focus(), 50)
   }
 
+  // Inline catalog sync for sports / sealed modes
+  const handleQuickSync = async () => {
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      if (form.itemType === 'sports' || form.itemType === 'sealed') {
+        const result = await syncSports()  // syncs both sports cards + box catalog
+        const s = 'sportsUpserted' in result ? result.sportsUpserted ?? 0 : 0
+        const b = 'boxesUpserted'  in result ? result.boxesUpserted  ?? 0 : 0
+        setSyncMsg(`Synced: ${s} sports cards + ${b} box products`)
+      } else {
+        const result = await syncPokemonSet('sv3pt5')
+        const p = 'pokemonUpserted' in result ? result.pokemonUpserted ?? 0 : 0
+        setSyncMsg(`Synced: ${p} Pokémon cards (151 set)`)
+      }
+      setSearchKey((k) => k + 1)  // remount search input to reload top results
+    } catch (e) {
+      setSyncMsg(`Error: ${String(e)}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const totalCost = form.purchasePrice * form.quantity + form.fees + form.shippingCost
   const isGraded = !!form.gradingCompany
 
@@ -278,7 +338,7 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
     e.preventDefault()
     const displayName = form.itemType === 'sports' ? form.playerName : form.cardName
     if (!displayName) {
-      setError(form.itemType === 'sports' ? 'Player name is required' : form.itemType === 'sealed' ? 'Product name is required' : 'Card name is required')
+      setError(form.itemType === 'sports' ? 'Player name is required' : form.itemType === 'sealed' ? 'Box name is required' : 'Card name is required')
       return
     }
     if (form.purchasePrice < 0) { setError('Purchase price must be non-negative'); return }
@@ -310,6 +370,8 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
       if (form.itemType === 'sealed') {
         payload.conditionRaw = form.conditionRaw || undefined
         payload.setName = form.setName || undefined
+        payload.variant = form.boxType || undefined   // store box type in variant field
+        payload.language = form.language
       } else if (form.itemType !== 'sports') {
         // TCG (pokemon or other tcg)
         payload.language = form.language
@@ -394,16 +456,28 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
       <div>
         <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-1.5">Quick Search</p>
         <CardSearchInput
+          key={`${form.itemType === 'sports' ? 'sports' : form.itemType === 'sealed' ? 'sealed' : 'cards'}-${searchKey}`}
           onSelect={handleCatalogSelect}
           autoFocus
+          category={
+            form.itemType === 'sports' ? 'SPORTS'
+            : form.itemType === 'sealed' ? 'SEALED'
+            : undefined
+          }
+          topLimit={form.itemType === 'sports' || form.itemType === 'sealed' ? 20 : 8}
+          onSync={form.itemType === 'sports' || form.itemType === 'sealed' ? handleQuickSync : undefined}
+          syncing={syncing}
           placeholder={
             form.itemType === 'sports'
               ? 'Search — try "wemby prizm silver" or "caitlin clark chrome"'
               : form.itemType === 'sealed'
-              ? 'Search sealed products — try "scarlet violet booster box"'
+              ? 'Search — try "obsidian flames booster box" or "scarlet violet ETB"'
               : 'Search — try "charizard 151" or "umbreon alt art"'
           }
         />
+        {syncMsg && (
+          <p className="mt-1.5 text-xs text-emerald-500">{syncMsg} — start typing to search</p>
+        )}
         {selectedCard && (
           <div className="mt-2 flex items-center gap-2 text-xs text-emerald-400">
             <span>✓ Auto-filled from catalog</span>
@@ -442,31 +516,44 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
         </>
       )}
 
-      {/* ── Sealed Box / Product fields ──────────────────────────────────── */}
+      {/* ── Box / Sealed Product fields ──────────────────────────────────── */}
       {form.itemType === 'sealed' && (
         <>
           <div className="grid grid-cols-[180px_1fr] gap-3">
             <Select
-              label="Product Type"
+              label="Game / Sport"
               options={SEALED_PRODUCT_TYPES}
               value={form.game}
               onChange={(e) => set('game', e.target.value)}
             />
-            <Input
-              label="Product Name *"
-              value={form.cardName}
-              onChange={(e) => set('cardName', e.target.value)}
-              placeholder="e.g. Scarlet & Violet Booster Box"
-              required
+            <Select
+              label="Box Type"
+              options={BOX_TYPES}
+              value={form.boxType}
+              onChange={(e) => set('boxType', e.target.value)}
             />
           </div>
 
-          <div className="grid grid-cols-[1fr_160px] gap-3">
+          <Input
+            label="Name *"
+            value={form.cardName}
+            onChange={(e) => set('cardName', e.target.value)}
+            placeholder="e.g. Scarlet & Violet — Obsidian Flames Booster Box"
+            required
+          />
+
+          <div className="grid grid-cols-[1fr_120px_160px] gap-3">
             <Input
               label="Set / Edition"
               value={form.setName}
               onChange={(e) => set('setName', e.target.value)}
               placeholder="e.g. Obsidian Flames, Paradox Rift"
+            />
+            <Select
+              label="Language"
+              options={LANGUAGES}
+              value={form.language}
+              onChange={(e) => set('language', e.target.value)}
             />
             <Select
               label="Condition"
@@ -660,7 +747,9 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
 
       {/* ── Actions ─────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 pt-2">
-        <Button type="submit" loading={loading}>Save Card</Button>
+        <Button type="submit" loading={loading}>
+          {form.itemType === 'sealed' ? 'Save Box' : 'Save Card'}
+        </Button>
         <Button
           type="button"
           variant="secondary"
