@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { CardSearchInput } from './CardSearchInput'
 import { Input } from '@/components/ui/input'
@@ -10,13 +10,42 @@ import type { CardCatalog } from '@prisma/client'
 
 // ── Option lists ──────────────────────────────────────────────────────────────
 
+type ItemType = 'pokemon' | 'sports' | 'sealed' | 'tcg'
+
+const ITEM_TYPE_OPTIONS: { type: ItemType; label: string }[] = [
+  { type: 'pokemon', label: 'Pokemon Card' },
+  { type: 'sports', label: 'Basketball / Sports Card' },
+  { type: 'sealed', label: 'Sealed Box / Product' },
+  { type: 'tcg', label: 'Other TCG Card' },
+]
+
 const TCG_GAMES = [
-  { value: 'pokemon', label: 'Pokémon TCG' },
   { value: 'mtg', label: 'Magic: The Gathering' },
   { value: 'yugioh', label: 'Yu-Gi-Oh!' },
   { value: 'onepiece', label: 'One Piece TCG' },
   { value: 'lorcana', label: 'Disney Lorcana' },
   { value: 'other', label: 'Other TCG' },
+]
+
+const SEALED_PRODUCT_TYPES = [
+  { value: 'pokemon', label: 'Pokemon TCG' },
+  { value: 'mtg', label: 'Magic: The Gathering' },
+  { value: 'yugioh', label: 'Yu-Gi-Oh!' },
+  { value: 'onepiece', label: 'One Piece TCG' },
+  { value: 'lorcana', label: 'Disney Lorcana' },
+  { value: 'basketball', label: 'Basketball Cards' },
+  { value: 'baseball', label: 'Baseball Cards' },
+  { value: 'football', label: 'Football Cards' },
+  { value: 'soccer', label: 'Soccer Cards' },
+  { value: 'other', label: 'Other' },
+]
+
+const SEALED_CONDITIONS = [
+  { value: 'Sealed', label: 'Factory Sealed' },
+  { value: 'Opened', label: 'Opened (Complete)' },
+  { value: 'NM', label: 'Near Mint (NM)' },
+  { value: 'LP', label: 'Light Play (LP)' },
+  { value: 'DMG', label: 'Damaged (DMG)' },
 ]
 
 const SPORT_OPTIONS = [
@@ -88,7 +117,8 @@ const GRADERS = [
 // ── Form state ────────────────────────────────────────────────────────────────
 
 type FormState = {
-  category: 'TCG' | 'SPORTS'
+  itemType: ItemType
+  category: 'TCG' | 'SPORTS' | 'SEALED'
   // TCG
   game: string
   cardName: string
@@ -131,7 +161,7 @@ type FormState = {
 }
 
 const emptyTCG: FormState = {
-  category: 'TCG', game: 'pokemon', cardName: '', setName: '', cardNumber: '',
+  itemType: 'pokemon', category: 'TCG', game: 'pokemon', cardName: '', setName: '', cardNumber: '',
   language: 'EN', rarity: '', variant: '',
   sport: '', league: '', season: '', manufacturer: '', brand: '', productLine: '',
   subsetName: '', insertName: '', parallel: '', serialNumbered: false, serialNumber: '',
@@ -143,8 +173,14 @@ const emptyTCG: FormState = {
 
 const emptySports: FormState = {
   ...emptyTCG,
-  category: 'SPORTS', game: 'basketball', sport: 'Basketball', league: 'NBA',
+  itemType: 'sports', category: 'SPORTS', game: 'basketball', sport: 'Basketball', league: 'NBA',
   conditionRaw: 'NM',
+}
+
+const emptySealed: FormState = {
+  ...emptyTCG,
+  itemType: 'sealed', category: 'SEALED', game: 'pokemon', cardName: '', setName: '',
+  conditionRaw: 'Sealed', language: 'EN',
 }
 
 interface Props {
@@ -165,11 +201,12 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
-  const switchCategory = (cat: 'TCG' | 'SPORTS') => {
-    setForm(cat === 'TCG'
-      ? { ...emptyTCG, source: form.source, purchaseDate: form.purchaseDate }
-      : { ...emptySports, source: form.source, purchaseDate: form.purchaseDate },
-    )
+  const switchItemType = (type: ItemType) => {
+    const shared = { source: form.source, purchaseDate: form.purchaseDate }
+    if (type === 'pokemon') setForm({ ...emptyTCG, itemType: 'pokemon', game: 'pokemon', category: 'TCG', ...shared })
+    else if (type === 'sports') setForm({ ...emptySports, itemType: 'sports', ...shared })
+    else if (type === 'sealed') setForm({ ...emptySealed, itemType: 'sealed', ...shared })
+    else setForm({ ...emptyTCG, itemType: 'tcg', game: 'mtg', category: 'TCG', ...shared })
     setSelectedCard(null)
     setError(null)
   }
@@ -177,7 +214,7 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
   // Auto-derive league options from chosen sport
   const leagueOptions = (LEAGUE_BY_SPORT[form.sport] ?? []).map((v) => ({ value: v, label: v }))
 
-  // Auto-derive game from sport (for consistent DB storage)
+  // Auto-derive game for DB storage
   const derivedGame = form.category === 'SPORTS'
     ? (form.sport.toLowerCase() || 'sports')
     : form.game
@@ -193,6 +230,7 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
       }
       setForm((prev) => ({
         ...prev,
+        itemType: 'sports',
         category: 'SPORTS',
         sport: c.sport ?? prev.sport,
         league: c.league ?? prev.league,
@@ -215,10 +253,12 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
         game: (c.sport ?? 'sports').toLowerCase(),
       }))
     } else {
+      const game = card.game ?? 'pokemon'
       setForm((prev) => ({
         ...prev,
+        itemType: game === 'pokemon' ? 'pokemon' : 'tcg',
         category: 'TCG',
-        game: card.game,
+        game,
         cardName: card.cardName,
         setName: card.setName ?? '',
         cardNumber: card.cardNumber ?? '',
@@ -236,9 +276,9 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
 
   const handleSubmit = async (e: React.FormEvent, addAnother = false) => {
     e.preventDefault()
-    const displayName = form.category === 'SPORTS' ? form.playerName : form.cardName
+    const displayName = form.itemType === 'sports' ? form.playerName : form.cardName
     if (!displayName) {
-      setError(form.category === 'SPORTS' ? 'Player name is required' : 'Card name is required')
+      setError(form.itemType === 'sports' ? 'Player name is required' : form.itemType === 'sealed' ? 'Product name is required' : 'Card name is required')
       return
     }
     if (form.purchasePrice < 0) { setError('Purchase price must be non-negative'); return }
@@ -247,10 +287,10 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
     setError(null)
 
     try {
-      const cardName = form.category === 'SPORTS' ? (form.playerName || form.cardName) : form.cardName
+      const cardName = form.itemType === 'sports' ? (form.playerName || form.cardName) : form.cardName
       const payload: Record<string, unknown> = {
         category: form.category,
-        game: derivedGame,
+        game: form.itemType === 'sealed' ? form.game : derivedGame,
         cardName,
         setName: form.setName || undefined,
         cardNumber: form.cardNumber || undefined,
@@ -267,7 +307,11 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
         certNumber: form.certNumber || undefined,
       }
 
-      if (form.category === 'TCG') {
+      if (form.itemType === 'sealed') {
+        payload.conditionRaw = form.conditionRaw || undefined
+        payload.setName = form.setName || undefined
+      } else if (form.itemType !== 'sports') {
+        // TCG (pokemon or other tcg)
         payload.language = form.language
         payload.rarity = form.rarity || undefined
         payload.variant = form.variant || undefined
@@ -303,9 +347,11 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
       if (!res.ok || !json.ok) throw new Error(json.error ?? 'Failed to save')
 
       if (addAnother) {
-        const reset = form.category === 'TCG'
-          ? { ...emptyTCG, game: form.game, language: form.language, source: form.source }
-          : { ...emptySports, sport: form.sport, league: form.league, manufacturer: form.manufacturer, source: form.source }
+        const reset = form.itemType === 'sports'
+          ? { ...emptySports, sport: form.sport, league: form.league, manufacturer: form.manufacturer, source: form.source }
+          : form.itemType === 'sealed'
+          ? { ...emptySealed, game: form.game, source: form.source }
+          : { ...emptyTCG, itemType: form.itemType, game: form.game, language: form.language, source: form.source }
         setForm(reset)
         setSelectedCard(null)
         setError(null)
@@ -323,22 +369,22 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
 
   return (
     <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-5">
-      {/* ── Category toggle ─────────────────────────────────────────────── */}
+      {/* ── Item type selector ──────────────────────────────────────────── */}
       <div>
-        <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Category</p>
-        <div className="flex rounded-lg border border-zinc-700 overflow-hidden w-fit">
-          {(['TCG', 'SPORTS'] as const).map((cat) => (
+        <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">What are you adding?</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {ITEM_TYPE_OPTIONS.map(({ type, label }) => (
             <button
-              key={cat}
+              key={type}
               type="button"
-              onClick={() => switchCategory(cat)}
-              className={`px-5 py-2 text-sm font-medium transition-colors ${
-                form.category === cat
-                  ? 'bg-brand-600 text-white'
-                  : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+              onClick={() => switchItemType(type)}
+              className={`px-3 py-2.5 rounded-lg border text-sm font-medium transition-all text-center ${
+                form.itemType === type
+                  ? 'border-brand-500 bg-brand-600/20 text-brand-300'
+                  : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
               }`}
             >
-              {cat === 'TCG' ? 'Trading Card Game' : 'Sports Card'}
+              {label}
             </button>
           ))}
         </div>
@@ -351,8 +397,10 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
           onSelect={handleCatalogSelect}
           autoFocus
           placeholder={
-            form.category === 'SPORTS'
+            form.itemType === 'sports'
               ? 'Search — try "wemby prizm silver" or "caitlin clark chrome"'
+              : form.itemType === 'sealed'
+              ? 'Search sealed products — try "scarlet violet booster box"'
               : 'Search — try "charizard 151" or "umbreon alt art"'
           }
         />
@@ -368,13 +416,18 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
 
       <hr className="border-zinc-800" />
 
-      {/* ── TCG fields ───────────────────────────────────────────────────── */}
-      {form.category === 'TCG' && (
+      {/* ── TCG fields (Pokemon / Other TCG) ────────────────────────────── */}
+      {(form.itemType === 'pokemon' || form.itemType === 'tcg') && (
         <>
-          <div className="grid grid-cols-[140px_1fr] gap-3">
-            <Select label="Game" options={TCG_GAMES} value={form.game} onChange={(e) => set('game', e.target.value)} />
+          {form.itemType === 'tcg' && (
+            <div className="grid grid-cols-[160px_1fr] gap-3">
+              <Select label="Game" options={TCG_GAMES} value={form.game} onChange={(e) => set('game', e.target.value)} />
+              <Input label="Card Name *" value={form.cardName} onChange={(e) => set('cardName', e.target.value)} placeholder="e.g. Black Lotus" required />
+            </div>
+          )}
+          {form.itemType === 'pokemon' && (
             <Input label="Card Name *" value={form.cardName} onChange={(e) => set('cardName', e.target.value)} placeholder="e.g. Charizard ex" required />
-          </div>
+          )}
 
           <div className="grid grid-cols-[1fr_100px_120px] gap-3">
             <Input label="Set Name" value={form.setName} onChange={(e) => set('setName', e.target.value)} placeholder="e.g. Obsidian Flames" />
@@ -389,8 +442,44 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
         </>
       )}
 
+      {/* ── Sealed Box / Product fields ──────────────────────────────────── */}
+      {form.itemType === 'sealed' && (
+        <>
+          <div className="grid grid-cols-[180px_1fr] gap-3">
+            <Select
+              label="Product Type"
+              options={SEALED_PRODUCT_TYPES}
+              value={form.game}
+              onChange={(e) => set('game', e.target.value)}
+            />
+            <Input
+              label="Product Name *"
+              value={form.cardName}
+              onChange={(e) => set('cardName', e.target.value)}
+              placeholder="e.g. Scarlet & Violet Booster Box"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-[1fr_160px] gap-3">
+            <Input
+              label="Set / Edition"
+              value={form.setName}
+              onChange={(e) => set('setName', e.target.value)}
+              placeholder="e.g. Obsidian Flames, Paradox Rift"
+            />
+            <Select
+              label="Condition"
+              options={SEALED_CONDITIONS}
+              value={form.conditionRaw}
+              onChange={(e) => set('conditionRaw', e.target.value)}
+            />
+          </div>
+        </>
+      )}
+
       {/* ── Sports fields ────────────────────────────────────────────────── */}
-      {form.category === 'SPORTS' && (
+      {form.itemType === 'sports' && (
         <>
           {/* Sport + League */}
           <div className="grid grid-cols-[160px_1fr] gap-3">
@@ -482,16 +571,23 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
       {/* ── Condition / grading (shared) ─────────────────────────────────── */}
       <hr className="border-zinc-800" />
 
-      <div className="grid grid-cols-[1fr_1fr_120px_160px] gap-3">
-        <Select label="Grading Company" options={GRADERS} value={form.gradingCompany} onChange={(e) => set('gradingCompany', e.target.value)} />
-        {isGraded ? (
-          <Input label="Grade" value={form.grade} onChange={(e) => set('grade', e.target.value)} placeholder="10" />
-        ) : (
-          <Select label="Condition" options={CONDITIONS} value={form.conditionRaw} onChange={(e) => set('conditionRaw', e.target.value)} />
-        )}
-        <Input label="Cert #" value={form.certNumber} onChange={(e) => set('certNumber', e.target.value)} placeholder="12345678" disabled={!isGraded} />
-        <Input label="Source / Platform" value={form.source} onChange={(e) => set('source', e.target.value)} placeholder="eBay, COMC, LCS…" />
-      </div>
+      {form.itemType === 'sealed' ? (
+        <div className="grid grid-cols-[1fr_160px] gap-3">
+          <Input label="Source / Platform" value={form.source} onChange={(e) => set('source', e.target.value)} placeholder="eBay, TCGPlayer, LCS…" />
+          <Input label="Notes" value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Optional notes…" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-[1fr_1fr_120px_160px] gap-3">
+          <Select label="Grading Company" options={GRADERS} value={form.gradingCompany} onChange={(e) => set('gradingCompany', e.target.value)} />
+          {isGraded ? (
+            <Input label="Grade" value={form.grade} onChange={(e) => set('grade', e.target.value)} placeholder="10" />
+          ) : (
+            <Select label="Condition" options={CONDITIONS} value={form.conditionRaw} onChange={(e) => set('conditionRaw', e.target.value)} />
+          )}
+          <Input label="Cert #" value={form.certNumber} onChange={(e) => set('certNumber', e.target.value)} placeholder="12345678" disabled={!isGraded} />
+          <Input label="Source / Platform" value={form.source} onChange={(e) => set('source', e.target.value)} placeholder="eBay, COMC, LCS…" />
+        </div>
+      )}
 
       {/* ── Pricing (shared) ─────────────────────────────────────────────── */}
       <hr className="border-zinc-800" />
@@ -543,7 +639,9 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
       {/* ── Date + Notes ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-[160px_1fr] gap-3">
         <Input label="Purchase Date" type="date" value={form.purchaseDate} onChange={(e) => set('purchaseDate', e.target.value)} />
-        <Input label="Notes" value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Optional notes…" />
+        {form.itemType !== 'sealed' && (
+          <Input label="Notes" value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Optional notes…" />
+        )}
       </div>
 
       <Input
