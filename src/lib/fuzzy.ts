@@ -18,25 +18,26 @@ export function buildFuseIndex(catalog: CardCatalog[]): Fuse<CardCatalog> {
       { name: 'playerName', weight: 0.30 },
       // TCG/Sports: card display name
       { name: 'cardName', weight: 0.25 },
-      // Pre-computed search blob (all fields normalized)
-      { name: 'normalizedSearchText', weight: 0.18 },
+      // Pre-computed search blob (all fields normalized, incl. aliases like "moonbreon", "wemby")
+      { name: 'normalizedSearchText', weight: 0.22 },
       // Set / product name (e.g. "Prizm Basketball", "Obsidian Flames")
       { name: 'setName', weight: 0.10 },
       // Brand (Prizm, Select, Chrome — high-value search term for sports)
       { name: 'brand', weight: 0.08 },
       // Card number
-      { name: 'cardNumber', weight: 0.04 },
+      { name: 'cardNumber', weight: 0.03 },
       // Parallel (Silver, Gold, etc.)
-      { name: 'parallel', weight: 0.03 },
-      // TCG variant (Alternate Art, Shadowless, etc.)
-      { name: 'variant', weight: 0.02 },
+      { name: 'parallel', weight: 0.02 },
     ],
-    threshold: 0.4,
-    distance: 120,
+    // 0.35 is more permissive than default 0.6 but tighter than 0.4
+    // Allows "wemby" → "wembanyama", "mbreon" → "umbreon", typos
+    threshold: 0.35,
+    distance: 200,
     includeScore: true,
     minMatchCharLength: 2,
     shouldSort: true,
     ignoreLocation: true,
+    useExtendedSearch: false,
   })
   return fuseInstance
 }
