@@ -210,7 +210,10 @@ model ProductRelease {
   name             String
   manufacturer     String?
   brand            String?
-  category         String    @default("TCG")   // TCG | SPORTS
+  productLine      String?
+  category         String    @default("TCG")
+  // Status: ANNOUNCED | COMING_SOON | PREORDER_UPCOMING | PREORDER_OPEN | RELEASED | SOLD_OUT | ARCHIVED | UNKNOWN
+  productStatus    String    @default("ANNOUNCED")
   sport            String?
   game             String?
   season           String?
@@ -220,17 +223,43 @@ model ProductRelease {
   announcementDate DateTime?
   preorderDate     DateTime?
   releaseDate      DateTime?
-  productStatus    String    @default("ANNOUNCED") // ANNOUNCED | PREORDER | RELEASED | SOLD_OUT | ARCHIVED
-  reminderEligible Boolean   @default(true)
   externalUrl      String?
+  // Source attribution
+  sourceName       String?   // e.g. "pokemon-tcg-api" | "manual" | "beckett" | "topps" | "panini"
+  sourceUrl        String?   // URL we scraped/fetched from
+  sourceExternalId String?   // provider's own ID (e.g. pokemontcg set id "sv9")
+  // Lifecycle
+  isNew            Boolean   @default(true)
+  firstSeenAt      DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  lastCheckedAt    DateTime?
+  reminderEligible Boolean   @default(true)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
   userFollows      UserProductFollow[]
 
+  @@unique([sourceName, sourceExternalId])
   @@index([productStatus])
   @@index([releaseDate])
   @@index([preorderDate])
+  @@index([sourceName])
+  @@index([isNew])
+}
+
+model ProductSyncLog {
+  id            String    @id @default(cuid())
+  providerName  String
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  success       Boolean   @default(false)
+  insertedCount Int       @default(0)
+  updatedCount  Int       @default(0)
+  failedCount   Int       @default(0)
+  errorSummary  String?
+
+  @@index([providerName])
+  @@index([startedAt])
 }
 
 model UserProductFollow {
