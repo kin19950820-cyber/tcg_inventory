@@ -119,6 +119,28 @@ const SET_ALIASES: Record<string, string> = {
   'cel25':   'cel25 celebrations 25th anniversary',
 }
 
+/**
+ * JP set info: maps an EN set ID to its JP equivalent name and set code.
+ * JP cards have different card numbers and set names.
+ * Source: Bulbapedia / official JP Pokemon TCG site.
+ */
+export const JP_SET_MAP: Record<string, { name: string; code: string }> = {
+  'sv8':     { name: '超電ブレイカー',                code: 'SV8' },
+  'sv7':     { name: '楽園ドラゴーナ',                code: 'SV7' },
+  'sv6pt5':  { name: 'ナイトワンダラー',               code: 'SV6a' },
+  'sv6':     { name: '変幻の仮面',                   code: 'SV6' },
+  'sv5':     { name: 'ステラミラクル',                code: 'SV5' },
+  'sv4pt5':  { name: 'シャイニートレジャーex',          code: 'SV4a' },
+  'sv4':     { name: '古代の咆哮 / 未来の一閃',         code: 'SV4' },
+  'sv3pt5':  { name: 'ポケモンカード151',              code: 'SV2a' },   // EN 151 = JP sv2a
+  'sv3':     { name: '黒炎の支配者',                  code: 'SV3' },
+  'sv2':     { name: 'スノーハザード / クレイバースト',  code: 'SV2' },
+  'sv1':     { name: 'スカーレットex / バイオレットex', code: 'SV1' },
+  'swsh12':  { name: 'VSTARユニバース',               code: 'S12a' },
+  'swsh9':   { name: 'スターバース',                  code: 'S9' },
+  'swsh7':   { name: '蒼空ストリーム / 白銀のランス',   code: 'S7' },
+}
+
 /** Map a pokemontcg.io card to our CardCatalog insert shape. */
 export function mapPokemonCard(card: PokemonTCGCard): {
   id: string
@@ -178,5 +200,74 @@ export function mapPokemonCard(card: PokemonTCGCard): {
     normalizedSearchText,
     externalSource: 'pokemontcg',
     externalId: card.id,
+  }
+}
+
+/**
+ * Create a Japanese catalog entry for the same card.
+ *
+ * JP cards share the same artwork / name but have:
+ *  - Different card numbers (e.g. EN #199 ≠ JP #006 for Charizard ex OBF)
+ *  - Japanese set name
+ *  - language: 'JA'
+ *
+ * Card number is stored as 'JP-???' as a placeholder — the actual JP number
+ * must be entered manually when adding the card to inventory, since the EN API
+ * doesn't expose JP numbers. The search text includes hints so users can find
+ * the JP entry ("japanese jp ja").
+ *
+ * Exception: Pokemon 151 (sv3pt5/sv2a) — EN and JP numbering is identical
+ * (001–165 follow the Pokédex), so we set the number directly.
+ */
+export function mapPokemonCardJP(card: PokemonTCGCard): ReturnType<typeof mapPokemonCard> | null {
+  const jpSet = JP_SET_MAP[card.set.id]
+  if (!jpSet) return null   // No JP equivalent mapped for this set
+
+  const subtypes = card.subtypes ?? []
+  let variant: string | null = null
+  if (card.rarity?.toLowerCase().includes('special illustration')) variant = 'SAR'
+  else if (card.rarity?.toLowerCase().includes('illustration rare')) variant = 'IR'
+  else if (subtypes.includes('Radiant')) variant = 'Radiant'
+  else if (card.number?.includes('TG')) return null  // Trainer Gallery is EN-only
+
+  // Pokemon 151: EN sv3pt5 = JP sv2a — Pokédex numbering is identical (001-165)
+  // All other sets: JP number unknown without a JP database; use placeholder
+  const jpNumber = card.set.id === 'sv3pt5'
+    ? card.number
+    : `JP-${card.number}`   // placeholder — user must update when adding to inventory
+
+  const jpSetName = jpSet.name
+
+  const normalizedSearchText = [
+    card.name,
+    jpSetName,
+    jpSet.code,
+    jpNumber,
+    card.rarity,
+    variant,
+    SET_ALIASES[card.set.id] ?? '',
+    'pokemon', 'tcg', 'japanese', 'japan', 'jp', 'ja',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return {
+    id: `ptcg-jp-${card.id}`,
+    category: 'TCG',
+    game: 'pokemon',
+    cardName: card.name,
+    setName: jpSetName,
+    cardNumber: jpNumber,
+    language: 'JA',
+    rarity: card.rarity ?? null,
+    variant,
+    imageUrl: card.images.large ?? card.images.small ?? null,
+    normalizedSearchText,
+    externalSource: 'pokemontcg-jp',
+    externalId: `${card.id}-jp`,
   }
 }

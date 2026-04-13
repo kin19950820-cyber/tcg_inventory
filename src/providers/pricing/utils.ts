@@ -35,14 +35,26 @@ export function guessCondition(title: string): string | null {
  */
 export function buildTcgQuery(item: InventoryItem): string {
   const parts: string[] = [item.cardName]
-  if (item.setName) parts.push(item.setName)
-  if (item.cardNumber) parts.push(`#${item.cardNumber}`)
+
+  if (item.language === 'JA') {
+    // For Japanese cards: include JP set name + "japanese" keyword for eBay
+    // Skip the card number if it's still a placeholder (JP-xxx)
+    if (item.setName) parts.push(item.setName)
+    const jpNum = item.cardNumber && !item.cardNumber.startsWith('JP-') ? item.cardNumber : null
+    if (jpNum) parts.push(jpNum)
+    parts.push('japanese')
+  } else {
+    if (item.setName) parts.push(item.setName)
+    if (item.cardNumber) parts.push(`#${item.cardNumber}`)
+  }
+
   if (item.gradingCompany && item.grade) {
     parts.push(`${item.gradingCompany} ${item.grade}`)
-  } else if (item.conditionRaw) {
+  } else if (item.conditionRaw && item.language !== 'JA') {
+    // Omit raw condition for JP cards — eBay JP listings rarely include EN condition tags
     parts.push(item.conditionRaw)
   }
-  if (item.language && item.language !== 'EN') parts.push(item.language)
+
   return parts.join(' ')
 }
 

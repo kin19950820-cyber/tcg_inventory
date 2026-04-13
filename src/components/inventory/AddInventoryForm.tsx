@@ -505,9 +505,28 @@ export function AddInventoryForm({ onSuccess, initialData }: Props) {
 
           <div className="grid grid-cols-[1fr_100px_120px] gap-3">
             <Input label="Set Name" value={form.setName} onChange={(e) => set('setName', e.target.value)} placeholder="e.g. Obsidian Flames" />
-            <Input label="Card #" value={form.cardNumber} onChange={(e) => set('cardNumber', e.target.value)} placeholder="228" />
-            <Select label="Language" options={LANGUAGES} value={form.language} onChange={(e) => set('language', e.target.value)} />
+            <Input
+              label="Card #"
+              value={form.cardNumber}
+              onChange={(e) => set('cardNumber', e.target.value)}
+              placeholder={form.language === 'JA' ? 'JP #' : '228'}
+            />
+            <Select
+              label="Language"
+              options={LANGUAGES}
+              value={form.language}
+              onChange={(e) => set('language', e.target.value)}
+            />
           </div>
+
+          {/* JP card number warning — JP numbers differ from EN */}
+          {form.language === 'JA' && form.cardNumber.startsWith('JP-') && (
+            <div className="rounded-md border border-amber-800 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
+              JP card numbers differ from EN. The catalog entry uses a placeholder (<span className="font-mono">{form.cardNumber}</span>).
+              Please update the card number to the correct Japanese number before saving
+              (e.g. <span className="font-mono">006/165</span> for Charizard ex in 黒炎の支配者).
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <Input label="Rarity" value={form.rarity} onChange={(e) => set('rarity', e.target.value)} placeholder="e.g. Special Illustration Rare" />

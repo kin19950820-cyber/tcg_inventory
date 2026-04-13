@@ -19,6 +19,7 @@ import {
   POKEMON_SYNC_SETS,
   fetchSetCards,
   mapPokemonCard,
+  mapPokemonCardJP,
 } from '@/services/scrapers/pokemonTcgScraper'
 
 export interface SyncResult {
@@ -28,6 +29,7 @@ export interface SyncResult {
   boxesUpserted?: number
   pokemonFetched?: number
   pokemonUpserted?: number
+  pokemonJpUpserted?: number
   pokemonSetsProcessed?: number
   pokemonSetsFailed?: string[]
   set?: string
@@ -121,66 +123,71 @@ async function upsertBoxCatalog(): Promise<number> {
   return count
 }
 
-async function upsertPokemonSet(setId: string): Promise<{ fetched: number; upserted: number }> {
+const POKEMON_CARD_BASE = {
+  sport: null, league: null, season: null, manufacturer: null,
+  brand: null, productLine: null, subsetName: null, insertName: null,
+  parallel: null, playerName: null, teamName: null, year: null,
+  serialNumbered: false, autograph: false, memorabilia: false, rookie: false,
+} as const
+
+async function upsertPokemonSet(
+  setId: string,
+): Promise<{ fetched: number; upserted: number; jpUpserted: number }> {
   const cards = await fetchSetCards(setId)
-  if (cards.length === 0) return { fetched: 0, upserted: 0 }
+  if (cards.length === 0) return { fetched: 0, upserted: 0, jpUpserted: 0 }
 
   const CHUNK = 25
   let upserted = 0
+  let jpUpserted = 0
 
   for (let i = 0; i < cards.length; i += CHUNK) {
     const chunk = cards.slice(i, i + CHUNK)
+
     await Promise.all(
       chunk.map((card) => {
         const m = mapPokemonCard(card)
         return prisma.cardCatalog.upsert({
-          where: { id: m.id },
-          update: {
-            imageUrl:             m.imageUrl,
-            rarity:               m.rarity,
-            variant:              m.variant,
-            normalizedSearchText: m.normalizedSearchText,
-          },
+          where:  { id: m.id },
+          update: { imageUrl: m.imageUrl, rarity: m.rarity, variant: m.variant, normalizedSearchText: m.normalizedSearchText },
           create: {
-            id:                   m.id,
-            category:             'TCG',
-            game:                 'pokemon',
-            cardName:             m.cardName,
-            setName:              m.setName,
-            cardNumber:           m.cardNumber,
-            language:             'EN',
-            rarity:               m.rarity,
-            variant:              m.variant,
-            imageUrl:             m.imageUrl,
-            normalizedSearchText: m.normalizedSearchText,
-            externalSource:       'pokemontcg',
-            externalId:           m.externalId,
-            // nullable fields — explicitly null (no serialNumber on CardCatalog)
-            sport:          null,
-            league:         null,
-            season:         null,
-            manufacturer:   null,
-            brand:          null,
-            productLine:    null,
-            subsetName:     null,
-            insertName:     null,
-            parallel:       null,
-            playerName:     null,
-            teamName:       null,
-            year:           null,
-            // boolean fields
-            serialNumbered: false,
-            autograph:      false,
-            memorabilia:    false,
-            rookie:         false,
+            ...POKEMON_CARD_BASE,
+            id: m.id, category: 'TCG', game: 'pokemon',
+            cardName: m.cardName, setName: m.setName, cardNumber: m.cardNumber,
+            language: 'EN', rarity: m.rarity, variant: m.variant,
+            imageUrl: m.imageUrl, normalizedSearchText: m.normalizedSearchText,
+            externalSource: 'pokemontcg', externalId: m.externalId,
           },
         })
       }),
     )
     upserted += chunk.length
+
+    // JP entries — only for sets that have a JP equivalent mapped
+    const jpChunkOps = chunk
+      .map((card) => mapPokemonCardJP(card))
+      .filter((m): m is NonNullable<typeof m> => m !== null)
+      .map((m) =>
+        prisma.cardCatalog.upsert({
+          where:  { id: m.id },
+          update: { imageUrl: m.imageUrl, rarity: m.rarity, variant: m.variant, normalizedSearchText: m.normalizedSearchText },
+          create: {
+            ...POKEMON_CARD_BASE,
+            id: m.id, category: 'TCG', game: 'pokemon',
+            cardName: m.cardName, setName: m.setName, cardNumber: m.cardNumber,
+            language: 'JA', rarity: m.rarity, variant: m.variant,
+            imageUrl: m.imageUrl, normalizedSearchText: m.normalizedSearchText,
+            externalSource: 'pokemontcg-jp', externalId: m.externalId,
+          },
+        }),
+      )
+
+    if (jpChunkOps.length > 0) {
+      await Promise.all(jpChunkOps)
+      jpUpserted += jpChunkOps.length
+    }
   }
 
-  return { fetched: cards.length, upserted }
+  return { fetched: cards.length, upserted, jpUpserted }
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -203,11 +210,11 @@ export async function runSportsSync(): Promise<SyncResult> {
 export async function runPokemonSetSync(setId: string): Promise<SyncResult> {
   const start = Date.now()
   try {
-    const { fetched, upserted } = await upsertPokemonSet(setId)
+    const { fetched, upserted, jpUpserted } = await upsertPokemonSet(setId)
     await invalidateCatalogCache()
     return {
       status: 'ok', set: setId,
-      pokemonFetched: fetched, pokemonUpserted: upserted,
+      pokemonFetched: fetched, pokemonUpserted: upserted, pokemonJpUpserted: jpUpserted,
       durationMs: Date.now() - start,
     }
   } catch (err) {
@@ -231,15 +238,16 @@ export async function runCatalogSync(): Promise<SyncResult> {
     const boxesUpserted = await upsertBoxCatalog()
     console.log(`[catalogSync] Boxes: ${boxesUpserted} upserted`)
 
-    let totalFetched = 0, totalUpserted = 0
+    let totalFetched = 0, totalUpserted = 0, totalJpUpserted = 0
     const failedSets: string[] = []
 
     for (const setId of POKEMON_SYNC_SETS) {
       try {
-        const { fetched, upserted } = await upsertPokemonSet(setId)
-        totalFetched  += fetched
-        totalUpserted += upserted
-        console.log(`[catalogSync] ${setId}: ${fetched} fetched, ${upserted} upserted`)
+        const { fetched, upserted, jpUpserted } = await upsertPokemonSet(setId)
+        totalFetched    += fetched
+        totalUpserted   += upserted
+        totalJpUpserted += jpUpserted
+        console.log(`[catalogSync] ${setId}: ${fetched} fetched, ${upserted} EN + ${jpUpserted} JP upserted`)
         await new Promise((r) => setTimeout(r, 150))
       } catch (err) {
         console.error(`[catalogSync] Failed set ${setId}:`, err)
@@ -256,6 +264,7 @@ export async function runCatalogSync(): Promise<SyncResult> {
       boxesUpserted,
       pokemonFetched: totalFetched,
       pokemonUpserted: totalUpserted,
+      pokemonJpUpserted: totalJpUpserted,
       pokemonSetsProcessed: POKEMON_SYNC_SETS.length - failedSets.length,
       pokemonSetsFailed: failedSets,
       durationMs: Date.now() - start,

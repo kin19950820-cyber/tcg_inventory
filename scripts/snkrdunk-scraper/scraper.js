@@ -3,17 +3,23 @@
  * ====================================
  * Uses Puppeteer to scrape SNKRDUNK (スニーカーダンク) for trading card sold prices.
  *
+ * IMPORTANT — SNKRDUNK is a Japanese TCG marketplace:
+ *  - Only Japanese Pokemon/TCG cards are listed (NO sports cards)
+ *  - Search ONLY works with Japanese keywords (e.g. リザードン not "charizard")
+ *  - Use --translate flag to auto-translate common English Pokemon names
+ *
  * Strategy:
  *  1. Intercept internal API/fetch calls made by the Next.js page (most reliable)
  *  2. Fall back to DOM scraping if API interception yields nothing
  *  3. Saves results to SQLite (persistent, queryable) + optionally exports CSV
  *
  * Usage:
- *   node scraper.js --query="charizard ex"
- *   node scraper.js --query="pikachu" --limit=10 --csv
+ *   node scraper.js "リザードン ex"          (Japanese query — direct)
+ *   node scraper.js --query="charizard ex" --translate   (auto-translate EN→JA)
+ *   node scraper.js --query="ピカチュウ" --limit=10 --csv
  *   node scraper.js --url="https://snkrdunk.com/products/XXXXX"
- *   node scraper.js --history --query="charizard"    (query local DB only, no scrape)
- *   node scraper.js --export-csv                     (export entire DB to CSV)
+ *   node scraper.js --history --query="リザードン"    (query local DB only, no scrape)
+ *   node scraper.js --export-csv                      (export entire DB to CSV)
  */
 
 'use strict'
@@ -31,7 +37,9 @@ const CSV_DIR  = path.join(__dirname, 'exports')
 const JPY_RATE = parseFloat(process.env.JPY_USD_RATE ?? '0.0067')   // ≈149 JPY/USD
 
 const BASE_URL       = 'https://snkrdunk.com'
-const SEARCH_URL     = `${BASE_URL}/apparel-categories/25?department_name=hobby`
+// English search works fine with Puppeteer — the site is internationalized.
+// Static HTTP fetches returned wrong results because JS wasn't executed.
+const SEARCH_URL     = `${BASE_URL}/search?keyword=`
 const USER_AGENT     = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 // ── Database setup ────────────────────────────────────────────────────────────
@@ -309,7 +317,7 @@ async function scrapeProductPage(page, productUrl, query) {
 // ── Search results page ───────────────────────────────────────────────────────
 
 async function scrapeSearch(page, query, limit = 10) {
-  const url = `${SEARCH_URL}&keyword=${encodeURIComponent(query)}`
+  const url = `${SEARCH_URL}${encodeURIComponent(query)}`
   console.log(`  → Loading: ${url}`)
 
   const interceptedProducts = []

@@ -1,0 +1,30 @@
+﻿# Exclude heavyweight/derived files from default Claude context
+.git/
+.next/
+node_modules/
+coverage/
+.vercel/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build artifacts
+build/
+dist/
+out/
+
+# Env files and secrets
+.env
+.env.local
+.env.*.local
+
+# Large lockfiles and generated outputs
+package-lock.json
+scripts/snkrdunk-scraper/package-lock.json
+
+# IDE/system noise
+.vscode/
+.DS_Store
+Thumbs.db

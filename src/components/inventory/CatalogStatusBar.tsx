@@ -31,10 +31,11 @@ export function CatalogStatusBar({ stats: initialStats }: Props) {
       setPhase('pokemon 151')
       const j2 = await syncPokemonSet('sv3pt5')
 
-      const sportsCount = 'sportsUpserted' in j1 ? j1.sportsUpserted : 0
-      const boxCount    = 'boxesUpserted'  in j1 ? j1.boxesUpserted  : 0
-      const pokemonCount = 'pokemonUpserted' in j2 ? j2.pokemonUpserted : 0
-      setResult(`Synced ${sportsCount} sports + ${boxCount} boxes + ${pokemonCount} Pokémon (151 set). Refresh page to search.`)
+      const sportsCount  = 'sportsUpserted'    in j1 ? j1.sportsUpserted    : 0
+      const boxCount     = 'boxesUpserted'     in j1 ? j1.boxesUpserted     : 0
+      const pokemonCount = 'pokemonUpserted'   in j2 ? j2.pokemonUpserted   : 0
+      const jpCount      = 'pokemonJpUpserted' in j2 ? j2.pokemonJpUpserted : 0
+      setResult(`Synced ${sportsCount} sports + ${boxCount} boxes + ${pokemonCount} EN + ${jpCount} JP Pokémon (151). Refresh to search.`)
     } catch (err) {
       setResult(`Error: ${String(err)}`)
     } finally {
